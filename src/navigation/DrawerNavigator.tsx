@@ -129,7 +129,7 @@ function DrawerContent({ navigation }: any) {
       </View>
 
       {/* App Version */}
-      <Text style={styles.version}>My Holy Nest v1.0.0</Text>
+      <Text style={styles.version}>My Holy Nest v2.1</Text>
     </DrawerContentScrollView>
   );
 }

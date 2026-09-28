@@ -14,7 +14,12 @@ import { Spacing, Radius, Shadow } from "../../constants/spacing";
 import { Routes } from "../../constants/routes";
 import { useAppSelector } from "../../hooks/useAppDispatch";
 import { selectUser, selectChurch } from "../../store/slices/auth.slice";
-import { useMyFamily, useMyCertificates, fullName, initials } from "../../hooks/useFamily";
+import {
+  useMyFamily,
+  useMyCertificates,
+  fullName,
+  initials,
+} from "../../hooks/useFamily";
 import { signOut } from "../../utils/logout";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -53,7 +58,8 @@ export default function ProfileScreen() {
   const address = family
     ? [family.address.street, family.address.area, family.address.city]
         .filter(Boolean)
-        .join(", ") + (family.address.pincode ? ` — ${family.address.pincode}` : "")
+        .join(", ") +
+      (family.address.pincode ? ` — ${family.address.pincode}` : "")
     : undefined;
   const roleLabel = user?.role
     ? user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
@@ -92,8 +98,7 @@ export default function ProfileScreen() {
           <Text style={styles.role}>{roleLabel}</Text>
           <View style={styles.churchPill}>
             <Text style={styles.churchPillText}>
-              <MaterialCommunityIcons name="church" size={13} />{" "}
-              {church?.name}
+              <MaterialCommunityIcons name="church" size={13} /> {church?.name}
             </Text>
           </View>
           <View style={styles.statsRow}>
@@ -108,7 +113,9 @@ export default function ProfileScreen() {
             </View> */}
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{certificates ? certificates.length : "–"}</Text>
+              <Text style={styles.statValue}>
+                {certificates ? certificates.length : "–"}
+              </Text>
               <Text style={styles.statLabel}>Certificates</Text>
             </View>
           </View>
@@ -186,7 +193,7 @@ export default function ProfileScreen() {
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.version}>My Holy Nest v1.0.0</Text>
+        <Text style={styles.version}>My Holy Nest v2.1</Text>
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
