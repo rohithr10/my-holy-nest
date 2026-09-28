@@ -1,10 +1,5 @@
 import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import {
   createDrawerNavigator,
   DrawerContentScrollView,
@@ -48,7 +43,11 @@ function DrawerContent({ navigation }: any) {
     },
     { label: t("drawer.community"), isSection: true },
     { label: t("drawer.youth_club"), icon: "run", route: Routes.YouthClub },
-    { label: t("drawer.womens_club"), icon: "human-female", route: Routes.WomensClub },
+    {
+      label: t("drawer.womens_club"),
+      icon: "human-female",
+      route: Routes.WomensClub,
+    },
     {
       label: t("drawer.widow_support"),
       icon: "handshake-outline",
@@ -60,10 +59,18 @@ function DrawerContent({ navigation }: any) {
       route: Routes.ChildrenScholarship,
     },
     { label: t("drawer.explore"), isSection: true },
-    { label: t("drawer.gallery"), icon: "image-multiple-outline", route: Routes.Gallery },
+    {
+      label: t("drawer.gallery"),
+      icon: "image-multiple-outline",
+      route: Routes.Gallery,
+    },
     { label: t("drawer.jobs"), icon: "briefcase-outline", route: Routes.Jobs },
     { label: t("drawer.more"), isSection: true },
-    { label: t("drawer.contact_church"), icon: "phone-outline", route: Routes.Contact },
+    {
+      label: t("drawer.contact_church"),
+      icon: "phone-outline",
+      route: Routes.Contact,
+    },
   ];
 
   return (
@@ -76,9 +83,12 @@ function DrawerContent({ navigation }: any) {
         paddingBottom: insets.bottom,
         paddingStart: 0,
         paddingEnd: 0,
-      }}>
+      }}
+    >
       {/* Header */}
-      <View style={[styles.drawerHeader, { paddingTop: insets.top + Spacing.md }]}>
+      <View
+        style={[styles.drawerHeader, { paddingTop: insets.top + Spacing.md }]}
+      >
         <View style={styles.avatarCircle}>
           <Text style={styles.avatarText}>
             {user?.profile.firstName?.[0] ?? "U"}
@@ -134,7 +144,10 @@ export default function DrawerNavigator() {
       }}
     >
       <Drawer.Screen name="MainTabs" component={TabNavigator} />
-      <Drawer.Screen name={Routes.Notifications} component={NotificationsScreen} />
+      <Drawer.Screen
+        name={Routes.Notifications}
+        component={NotificationsScreen}
+      />
       <Drawer.Screen name={Routes.Community} component={CommunityScreen} />
       <Drawer.Screen name={Routes.YouthClub} component={YouthClubScreen} />
       <Drawer.Screen name={Routes.WomensClub} component={WomensClubScreen} />
