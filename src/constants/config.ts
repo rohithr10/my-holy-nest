@@ -1,5 +1,3 @@
-import { Platform } from "react-native";
-
 const PROD_API = "https://myholynest-backend.onrender.com/v1";
 
 /**
@@ -22,6 +20,12 @@ export const Config = {
   APP_NAME: "My Holy Nest",
   APP_VERSION: "1.0.0",
   RAZORPAY_KEY: "rzp_test_XXXXXXXXXXXXXX",
+  /**
+   * Online giving stays off until the Razorpay checkout SDK and live keys are
+   * set up; until then the app points people to the parish office, and
+   * offerings recorded there still appear in their giving history.
+   */
+  ONLINE_GIVING_ENABLED: false,
   SUPPORT_EMAIL: "support@pariseva.in",
   SUPPORT_PHONE: "+91 98765 43210",
   DEFAULT_CURRENCY: "INR",

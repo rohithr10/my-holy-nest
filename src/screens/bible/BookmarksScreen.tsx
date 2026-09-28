@@ -10,6 +10,7 @@ import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import { Routes } from '../../constants/routes';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
 import { removeBookmark, selectBookmarks } from '../../store/slices/bible.slice';
+import { pushBookmarkRemoval } from '../../utils/bookmarkSync';
 import { useBibleTheme } from '../../hooks/useBibleTheme';
 import { ThemeToggle } from '../../components/common/BibleControls/BibleControls';
 import type { Bookmark } from '../../types';
@@ -35,13 +36,16 @@ export default function BookmarksScreen() {
   // preview, and reveals the action to open it in the reader.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const deleteBookmark = (id: string) => {
+  const deleteBookmark = (item: Bookmark) => {
     Alert.alert('Remove Bookmark', 'Remove this verse from bookmarks?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => dispatch(removeBookmark(id)),
+        onPress: () => {
+          dispatch(removeBookmark(item._id));
+          pushBookmarkRemoval(item);
+        },
       },
     ]);
   };
@@ -120,7 +124,7 @@ export default function BookmarksScreen() {
                     {savedAgo(item.createdAt)}
                   </Text>
                   <TouchableOpacity
-                    onPress={() => deleteBookmark(item._id)}
+                    onPress={() => deleteBookmark(item)}
                     style={styles.deleteBtn}
                     hitSlop={6}>
                     <Text style={[styles.deleteIcon, { color: theme.textMuted }]}>×</Text>

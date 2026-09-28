@@ -25,6 +25,7 @@ import {
 import type { AppLanguage } from '../../i18n';
 import type { BibleStackParamList } from '../../navigation/types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { pushBookmarkToggle } from '../../utils/bookmarkSync';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
 
@@ -73,20 +74,20 @@ export default function BibleReaderScreen({ navigation, route }: Props) {
   }, [bookmarks, bookId, currentChapter]);
 
   const onToggleBookmark = (verseNum: number, text: string) => {
-    dispatch(
-      toggleBookmark({
-        _id: `${bookId}-${currentChapter}-${verseNum}`,
-        userId: user?._id ?? 'local',
-        verseId: `${bookId}.${currentChapter}.${verseNum}`,
-        book: bookTitle,
-        bookId,
-        numberOfChapters: totalChapters,
-        chapter: currentChapter,
-        verse: verseNum,
-        text,
-        createdAt: new Date().toISOString(),
-      }),
-    );
+    const bookmark = {
+      _id: `${bookId}-${currentChapter}-${verseNum}`,
+      userId: user?._id ?? 'local',
+      verseId: `${bookId}.${currentChapter}.${verseNum}`,
+      book: bookTitle,
+      bookId,
+      numberOfChapters: totalChapters,
+      chapter: currentChapter,
+      verse: verseNum,
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch(toggleBookmark(bookmark));
+    pushBookmarkToggle(bookmark);
   };
 
   const shareVerse = async (verseNum: number, text: string) => {

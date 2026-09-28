@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,9 @@ type Props = NativeStackScreenProps<AuthStackParamList, typeof Routes.Splash>;
 
 export default function SplashScreen({ navigation }: Props) {
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
-  const fadeAnim = new Animated.Value(0);
-  const scaleAnim = new Animated.Value(0.8);
+  // Kept in refs so a re-render doesn't restart the animation from scratch.
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -31,7 +32,7 @@ export default function SplashScreen({ navigation }: Props) {
     }, 2500);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [fadeAnim, scaleAnim, navigation, isAuthenticated]);
 
   return (
     <View style={styles.container}>

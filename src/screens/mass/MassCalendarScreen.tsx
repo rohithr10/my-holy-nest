@@ -8,21 +8,22 @@ import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import { useMassTimings, formatMassTime } from '../../hooks/useMass';
+import type { MassTiming } from '../../types';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
 
-const UPCOMING_EVENTS = [
-  { date: '2026-06-09', title: 'Corpus Christi', titleTA: 'திரு உடல் திருவிழா', type: 'feast', color: Colors.accent.gold },
-  { date: '2026-06-13', title: 'Feast of St. Anthony', titleTA: 'அந்தோணி திருவிழா', type: 'feast', color: Colors.accent.gold },
-  { date: '2026-06-19', title: 'Sacred Heart of Jesus', titleTA: 'திரு இதய திருவிழா', type: 'feast', color: Colors.semantic.error },
-  { date: '2026-06-24', title: 'Birth of St. John Baptist', titleTA: 'யோவான் பாப்திஸ்து', type: 'feast', color: Colors.accent.gold },
-  { date: '2026-06-29', title: 'Feast of Sts. Peter & Paul', titleTA: 'பேதுரு பவுல் திருவிழா', type: 'feast', color: Colors.accent.gold },
-  { date: '2026-07-16', title: 'Our Lady of Mt. Carmel', titleTA: 'கார்மல் அன்னை', type: 'feast', color: Colors.sky.blue },
-  { date: '2026-08-15', title: 'Assumption of Mary', titleTA: 'மரியாயி எடுத்துக்கொள்ளப்படல்', type: 'holyday', color: Colors.semantic.error },
-];
+/** Colour per kind of dated Mass the parish publishes. */
+const TYPE_STYLE: Record<MassTiming['massType'], { label: string; color: string }> = {
+  feast: { label: 'Feast', color: Colors.accent.gold },
+  special: { label: 'Special', color: Colors.sky.blue },
+  funeral: { label: 'Funeral', color: Colors.neutral.gray500 },
+  wedding: { label: 'Wedding', color: Colors.semantic.error },
+  regular: { label: 'Mass', color: Colors.primary.navy },
+};
 
 function buildCalendar(year: number, month: number) {
   const firstDay = new Date(year, month, 1).getDay();
@@ -46,7 +47,13 @@ export default function MassCalendarScreen() {
   const cells = buildCalendar(year, month);
   const today = now.getDate();
 
-  const eventDates = new Set(UPCOMING_EVENTS.map(e => e.date));
+  // Dated Masses the parish office publishes (feasts, special Masses).
+  const { data: timings, isLoading } = useMassTimings();
+  const events = (timings ?? [])
+    .filter(t => !!t.specificDate)
+    .map(t => ({ ...t, date: t.specificDate!.slice(0, 10) }))
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const eventDates = new Set(events.map(e => e.date));
 
   const prevMonth = () => {
     if (month === 0) { setYear(y => y - 1); setMonth(11); }
@@ -57,7 +64,7 @@ export default function MassCalendarScreen() {
     else setMonth(m => m + 1);
   };
 
-  const currentMonthEvents = UPCOMING_EVENTS.filter(e =>
+  const currentMonthEvents = events.filter(e =>
     e.date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
 
   return (
@@ -112,39 +119,43 @@ export default function MassCalendarScreen() {
 
         {/* Legend */}
         <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: Colors.accent.gold }]} />
-            <Text style={styles.legendText}>Feast Day</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: Colors.semantic.error }]} />
-            <Text style={styles.legendText}>Holy Day of Obligation</Text>
-          </View>
+          {(['feast', 'special'] as const).map(k => (
+            <View key={k} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: TYPE_STYLE[k].color }]} />
+              <Text style={styles.legendText}>{TYPE_STYLE[k].label} Mass</Text>
+            </View>
+          ))}
         </View>
 
         {/* Events This Month */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Events in {MONTH_NAMES[month]}
+            Special Masses in {MONTH_NAMES[month]}
           </Text>
-          {currentMonthEvents.length === 0 ? (
-            <Text style={styles.noEvents}>No special events this month</Text>
+          {isLoading ? (
+            <Text style={styles.noEvents}>Loading…</Text>
+          ) : currentMonthEvents.length === 0 ? (
+            <Text style={styles.noEvents}>No special Masses published for this month</Text>
           ) : (
-            currentMonthEvents.map((event, i) => (
-              <View key={i} style={styles.eventCard}>
-                <View style={[styles.eventColorBar, { backgroundColor: event.color }]} />
+            currentMonthEvents.map(event => {
+              const kind = TYPE_STYLE[event.massType] ?? TYPE_STYLE.regular;
+              const t = formatMassTime(event.time);
+              return (
+              <View key={event._id} style={styles.eventCard}>
+                <View style={[styles.eventColorBar, { backgroundColor: kind.color }]} />
                 <View style={styles.eventInfo}>
-                  <Text style={styles.eventDate}>{event.date.slice(5).replace('-', '/')}</Text>
-                  <Text style={styles.eventTitle}>{event.title}</Text>
-                  <Text style={styles.eventTitleTA}>{event.titleTA}</Text>
-                </View>
-                <View style={[styles.typeBadge, { backgroundColor: event.color + '20' }]}>
-                  <Text style={[styles.typeText, { color: event.color }]}>
-                    {event.type === 'holyday' ? 'Holy Day' : 'Feast'}
+                  <Text style={styles.eventDate}>
+                    {new Date(event.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · {t.clock} {t.meridiem}
                   </Text>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  {!!event.titleTA && <Text style={styles.eventTitleTA}>{event.titleTA}</Text>}
+                </View>
+                <View style={[styles.typeBadge, { backgroundColor: kind.color + '20' }]}>
+                  <Text style={[styles.typeText, { color: kind.color }]}>{kind.label}</Text>
                 </View>
               </View>
-            ))
+              );
+            })
           )}
         </View>
 

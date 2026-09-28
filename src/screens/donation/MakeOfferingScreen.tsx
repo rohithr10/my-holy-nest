@@ -11,6 +11,9 @@ import type { DonationStackParamList } from '../../navigation/types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import { Config } from '../../constants/config';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
 
 type Props = NativeStackScreenProps<DonationStackParamList, typeof Routes.MakeOffering>;
 
@@ -31,28 +34,19 @@ export default function MakeOfferingScreen({ navigation, route }: Props) {
   const [cause, setCause] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('upi');
   const [intention, setIntention] = useState('');
-  const [loading, setLoading] = useState(false);
+  const church = useAppSelector(selectChurch);
 
   const amountValid = !!amount && parseInt(amount, 10) >= 10;
-  const canPay = amountValid && (!isDonation || !!cause.trim());
+  const canPay = Config.ONLINE_GIVING_ENABLED && amountValid && (!isDonation || !!cause.trim());
 
-  const handlePay = async () => {
-    if (isDonation && !cause.trim()) {
-      Alert.alert('Cause Required', 'Please enter what this donation is for.');
-      return;
-    }
-    if (!amountValid) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount (minimum ₹10).');
-      return;
-    }
-    setLoading(true);
-    await new Promise<void>(r => setTimeout(r, 1500));
-    setLoading(false);
-    navigation.navigate(Routes.DonationReceipt, {
-      donationId: `D${Date.now()}`,
-      amount: parseInt(amount, 10),
-      type: isDonation ? `Donation — ${cause.trim()}` : offeringType,
-    });
+  // Payment runs through Razorpay checkout once it is set up (see
+  // Config.ONLINE_GIVING_ENABLED). Until then nothing is charged and no
+  // receipt is shown — only the parish office can record an offering.
+  const handlePay = () => {
+    Alert.alert(
+      'Online giving is not available yet',
+      `Please give at the ${church?.name ?? 'parish'} office. Your offering will appear in your giving history once it is recorded.`,
+    );
   };
 
   return (
@@ -150,16 +144,29 @@ export default function MakeOfferingScreen({ navigation, route }: Props) {
 
           {/* CTA */}
           <Button
-            title={amount ? `Pay ₹${parseInt(amount || '0').toLocaleString('en-IN')}` : 'Enter Amount'}
+            title={
+              !Config.ONLINE_GIVING_ENABLED
+                ? 'Online giving coming soon'
+                : amount
+                  ? `Pay ₹${parseInt(amount || '0', 10).toLocaleString('en-IN')}`
+                  : 'Enter Amount'
+            }
             onPress={handlePay}
-            loading={loading}
             fullWidth
             size="lg"
             style={styles.payBtn}
             disabled={!canPay}
           />
 
-          <Text style={styles.secure}><MaterialCommunityIcons name="lock-outline" size={13} /> 100% Secure · Powered by Razorpay</Text>
+          {Config.ONLINE_GIVING_ENABLED ? (
+            <Text style={styles.secure}><MaterialCommunityIcons name="lock-outline" size={13} /> Secure payment · Powered by Razorpay</Text>
+          ) : (
+            <TouchableOpacity onPress={handlePay}>
+              <Text style={styles.secure}>
+                <MaterialCommunityIcons name="information-outline" size={13} /> How do I give at the parish office?
+              </Text>
+            </TouchableOpacity>
+          )}
           <View style={{ height: 32 }} />
         </ScrollView>
       </KeyboardAvoidingView>

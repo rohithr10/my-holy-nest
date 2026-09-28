@@ -9,6 +9,10 @@ import { Routes } from '../../constants/routes';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import { Config } from '../../constants/config';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useGivingForYear, OFFERING_LABEL, inr, donationDate } from '../../hooks/useDonations';
 
 /**
  * `route: 'subscription'` opens the recurring-giving setup; everything else
@@ -39,14 +43,12 @@ const OFFERING_TYPES = [
   },
 ];
 
-const RECENT_DONATIONS = [
-  { id: 'd1', type: 'Monthly Subscription', amount: 500, date: 'Jun 1, 2026', status: 'completed' },
-  { id: 'd2', type: 'Mass Offering', amount: 200, date: 'May 25, 2026', status: 'completed' },
-  { id: 'd3', type: 'Donation', amount: 1000, date: 'May 15, 2026', status: 'completed' },
-];
-
 export default function DonationHomeScreen() {
   const navigation = useNavigation<any>();
+  const church = useAppSelector(selectChurch);
+  const year = new Date().getFullYear();
+  const giving = useGivingForYear(year);
+  const recent = (giving.data ?? []).filter(d => d.status === 'completed').slice(0, 3);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -55,35 +57,46 @@ export default function DonationHomeScreen() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Give</Text>
-        <Text style={styles.headerSub}>St. Mary's Basilica</Text>
+        <Text style={styles.headerSub}>{church?.name}</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Summary Card */}
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Your Giving — {new Date().getFullYear()}</Text>
-          <Text style={styles.summaryAmount}>₹4,200</Text>
-          <View style={styles.progressBg}>
-            <View style={[styles.progressFill, { width: '42%' }]} />
-          </View>
-          <Text style={styles.progressLabel}>42% of annual goal ₹9,999</Text>
+          <Text style={styles.summaryLabel}>Your Giving — {year}</Text>
+          <Text style={styles.summaryAmount}>
+            {giving.isLoading ? '…' : giving.isError ? '—' : inr(giving.total)}
+          </Text>
+          {giving.isError && (
+            <Text style={styles.progressLabel}>Couldn't load your giving. Pull down on History to retry.</Text>
+          )}
           <View style={styles.summaryStats}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>8</Text>
+              <Text style={styles.statValue}>{giving.count}</Text>
               <Text style={styles.statLabel}>Donations</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>₹525</Text>
+              <Text style={styles.statValue}>{inr(giving.average)}</Text>
               <Text style={styles.statLabel}>Average</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>₹1,000</Text>
+              <Text style={styles.statValue}>{inr(giving.highest)}</Text>
               <Text style={styles.statLabel}>Highest</Text>
             </View>
           </View>
         </View>
+
+        {!Config.ONLINE_GIVING_ENABLED && (
+          <View style={styles.noticeCard}>
+            <MaterialCommunityIcons name="information-outline" style={styles.noticeIcon} />
+            <Text style={styles.noticeText}>
+              Online giving is being set up. Until then, please give at the parish office — offerings
+              recorded there appear in your giving history here.
+            </Text>
+          </View>
+        )}
 
         {/* Offering Types */}
         <Text style={styles.sectionTitle}>Make an Offering</Text>
@@ -124,17 +137,23 @@ export default function DonationHomeScreen() {
               <Text style={styles.seeAll}>See All <MaterialCommunityIcons name="chevron-right" size={13} /></Text>
             </TouchableOpacity>
           </View>
-          {RECENT_DONATIONS.map(d => (
-            <View key={d.id} style={styles.donationRow}>
+          {!giving.isLoading && !recent.length && (
+            <Text style={styles.donationDate}>No offerings recorded yet.</Text>
+          )}
+          {recent.map(d => (
+            <TouchableOpacity
+              key={d._id}
+              style={styles.donationRow}
+              onPress={() => navigation.navigate(Routes.DonationReceipt, { donationId: d._id })}>
               <View style={styles.donationIcon}>
                 <Text style={styles.donationIconText}>₹</Text>
               </View>
               <View style={styles.donationInfo}>
-                <Text style={styles.donationType}>{d.type}</Text>
-                <Text style={styles.donationDate}>{d.date}</Text>
+                <Text style={styles.donationType}>{OFFERING_LABEL[d.type] ?? d.type}</Text>
+                <Text style={styles.donationDate}>{donationDate(d)}</Text>
               </View>
-              <Text style={styles.donationAmount}>₹{d.amount}</Text>
-            </View>
+              <Text style={styles.donationAmount}>{inr(d.amount)}</Text>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -231,4 +250,15 @@ const styles = StyleSheet.create({
   donationType: { fontSize: 14, fontWeight: '600', color: Colors.neutral.gray800 },
   donationDate: { fontSize: 12, color: Colors.neutral.gray400, marginTop: 2 },
   donationAmount: { fontSize: 16, fontWeight: '700', color: Colors.primary.navy },
+  noticeCard: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    backgroundColor: Colors.accent.goldPale,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginHorizontal: Spacing.screen,
+    marginBottom: Spacing.md,
+  },
+  noticeIcon: { fontSize: 18, color: Colors.primary.navy, marginTop: 1 },
+  noticeText: { flex: 1, fontSize: 13, lineHeight: 19, color: Colors.primary.navy },
 });

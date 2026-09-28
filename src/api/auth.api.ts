@@ -56,4 +56,7 @@ export const authApi = {
 
   resetPassword: (payload: { phone: string; otp: string; newPassword: string }) =>
     apiClient.post<ApiResponse<{ message: string }>>('/auth/reset-password', payload),
+
+  changePassword: (payload: { currentPassword: string; newPassword: string }) =>
+    apiClient.post<ApiResponse<{ message: string }>>('/auth/change-password', payload),
 };

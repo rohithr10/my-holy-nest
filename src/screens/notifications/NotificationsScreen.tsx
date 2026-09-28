@@ -10,6 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Routes } from '../../constants/routes';
 import { formatDistanceToNow } from 'date-fns';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
@@ -40,6 +41,29 @@ function timeAgo(iso: string): string {
   }
 }
 
+/**
+ * Screens that live inside a tab's stack can't be reached by name from the
+ * drawer, so route them through their tab.
+ */
+const NESTED: Record<string, { tab: string }> = {
+  [Routes.Certificates]: { tab: Routes.ProfileTab },
+  [Routes.ChurchTransfer]: { tab: Routes.ProfileTab },
+  [Routes.FamilyCard]: { tab: Routes.ProfileTab },
+  [Routes.DonationHistory]: { tab: Routes.GiveTab },
+  [Routes.MassHome]: { tab: Routes.MassTab },
+};
+
+function openRoute(navigation: any, route: string) {
+  const nested = NESTED[route];
+  if (nested) {
+    // initial: false keeps the tab's own first screen underneath, so Back
+    // returns to it instead of leaving the tab.
+    navigation.navigate('MainTabs', { screen: nested.tab, params: { screen: route, initial: false } });
+  } else {
+    navigation.navigate(route);
+  }
+}
+
 export default function NotificationsScreen() {
   const navigation = useNavigation<any>();
   const {
@@ -54,7 +78,7 @@ export default function NotificationsScreen() {
 
   const handlePress = (item: AppNotification) => {
     markAsRead(item._id);
-    if (item.route) navigation.navigate(item.route);
+    if (item.route) openRoute(navigation, item.route);
   };
 
   const renderItem = ({ item }: { item: AppNotification }) => {

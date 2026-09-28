@@ -8,12 +8,19 @@ import {
   selectBootstrapped,
 } from '../store/slices/auth.slice';
 import { bootstrapSession } from '../store/bootstrap';
+import { useSessionSync } from '../hooks/useSessionSync';
 import { Colors } from '../constants/colors';
 import AuthNavigator from './AuthNavigator';
 import DrawerNavigator from './DrawerNavigator';
 import AdminNavigator from './AdminNavigator';
 
 const ADMIN_ROLES = ['super_admin', 'diocese_admin', 'church_admin', 'priest', 'pa'];
+
+/** Runs only while signed in, so the profile/parish sync never fires anonymously. */
+function SessionSync() {
+  useSessionSync();
+  return null;
+}
 
 export default function RootNavigator() {
   const bootstrapped = useAppSelector(selectBootstrapped);
@@ -34,6 +41,7 @@ export default function RootNavigator() {
 
   return (
     <NavigationContainer>
+      {isAuthenticated && <SessionSync />}
       {!isAuthenticated ? (
         <AuthNavigator />
       ) : ADMIN_ROLES.includes(role ?? '') ? (

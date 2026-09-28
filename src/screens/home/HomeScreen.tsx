@@ -6,8 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  FlatList,
-  Dimensions,
 } from "react-native";
 import { useNavigation, DrawerActions } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
@@ -18,10 +16,19 @@ import { Spacing, Radius, Shadow } from "../../constants/spacing";
 import { Routes } from "../../constants/routes";
 import { useAppSelector } from "../../hooks/useAppDispatch";
 import { selectUser, selectChurch } from "../../store/slices/auth.slice";
-import { selectAnnouncements } from "../../store/slices/church.slice";
-import { selectDonationSummary } from "../../store/slices/donation.slice";
 import { useNotifications } from "../../hooks/useNotifications";
+import { useAnnouncements } from "../../hooks/useAnnouncements";
 import { useDailyMeta, useReadingTexts } from "../../hooks/useDailyReadings";
+import {
+  useLiveStream,
+  useMassTimings,
+  nextMass,
+  startsIn,
+  timingsForDay,
+  upcomingSpecial,
+  formatMassTime,
+} from "../../hooks/useMass";
+import { localDate } from "../../utils/massSchedule";
 import type { AppLanguage } from "../../i18n";
 import { SafeAreaView } from "react-native-safe-area-context";
 import TopSafeArea from "../../components/common/TopSafeArea/TopSafeArea";
@@ -54,8 +61,7 @@ export default function HomeScreen() {
   const { t, i18n } = useTranslation();
   const user = useAppSelector(selectUser);
   const church = useAppSelector(selectChurch);
-  const announcements = useAppSelector(selectAnnouncements);
-  const donationSummary = useAppSelector(selectDonationSummary);
+  const { announcements } = useAnnouncements();
   const { unreadCount } = useNotifications();
 
   // Today's first reading (reference + text preview) from the real lectionary.
@@ -66,12 +72,22 @@ export default function HomeScreen() {
   const dailyText = useReadingTexts(
     firstReadingRef ? [firstReadingRef] : undefined,
     lang,
-    today.toISOString().slice(0, 10),
+    localDate(today),
     !!firstReadingRef,
   );
   const firstReadingText = dailyText.data?.first?.text;
 
   const displayAnnouncements = announcements;
+
+  // Schedule-driven cards: the live stream, today's Masses and the next one.
+  const { data: stream } = useLiveStream();
+  const { data: timings } = useMassTimings();
+  const upcoming = nextMass(timings);
+  const todaysTimes = timingsForDay(timings, today.getDay())
+    .concat(upcomingSpecial(timings).filter(m => m.specificDate!.slice(0, 10) === localDate(today)))
+    .map(m => formatMassTime(m.time))
+    .map(time => `${time.clock} ${time.meridiem}`);
+  const feast = dailyMeta.data?.feastName ?? dailyMeta.data?.season;
   const firstName = user?.profile.firstName ?? "Friend";
 
   const openDrawer = useCallback(() => {
@@ -124,14 +140,21 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
-        {/* Live Banner */}
+        {/* Live Banner — only while the parish is actually streaming */}
+        {stream?.status === "live" && (
         <TouchableOpacity
           style={styles.liveBanner}
-          onPress={() => navigation.navigate(Routes.MassTab)}
+          onPress={() =>
+            navigation.navigate(Routes.MassTab, {
+              screen: Routes.LiveMass,
+              initial: false,
+              params: { videoId: stream.youtubeVideoId, title: stream.title },
+            })
+          }
         >
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>{t("home.live_now")}</Text>
-          <Text style={styles.liveMassName}> Sunday Holy Mass</Text>
+          <Text style={styles.liveMassName} numberOfLines={1}> {stream.title}</Text>
           <View style={styles.liveJoinRow}>
             <Text style={styles.liveJoin}>{t("home.join")}</Text>
             <MaterialCommunityIcons
@@ -141,14 +164,15 @@ export default function HomeScreen() {
             />
           </View>
         </TouchableOpacity>
+        )}
 
         {/* Feast Day / Welcome Card */}
         <View style={styles.featureCard}>
           <View style={styles.featureCardInner}>
             <Text style={styles.feastLabel}>
-              {t("home.today_feast").toUpperCase()}
+              {(dailyMeta.data?.feastName ? t("home.today_feast") : "Today").toUpperCase()}
             </Text>
-            <Text style={styles.feastName}>Sacred Heart of Jesus</Text>
+            {!!feast && <Text style={styles.feastName}>{feast}</Text>}
             <Text style={styles.feastDate}>
               {new Date().toLocaleDateString("en-IN", {
                 weekday: "long",
@@ -158,7 +182,9 @@ export default function HomeScreen() {
               })}
             </Text>
             <Text style={styles.feastMass}>
-              Special Mass at 6:00 AM & 7:30 AM
+              {todaysTimes.length
+                ? `Mass today at ${todaysTimes.join(", ").replace(/, ([^,]*)$/, " & $1")}`
+                : "No Mass scheduled today"}
             </Text>
             <TouchableOpacity
               style={styles.feastCta}
@@ -177,6 +203,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Next Mass */}
+        {upcoming && (
         <View style={styles.nextMassCard}>
           <View style={styles.nextMassLeft}>
             <View style={styles.cardLabelRow}>
@@ -187,22 +214,23 @@ export default function HomeScreen() {
               />
               <Text style={styles.nextMassLabel}>{t("home.next_mass")}</Text>
             </View>
-            <Text style={styles.nextMassTitle}>Sunday Holy Mass</Text>
-            <Text style={styles.nextMassTime}>7:30 AM · Main Church</Text>
+            <Text style={styles.nextMassTitle}>{upcoming.mass.title}</Text>
+            <Text style={styles.nextMassTime}>
+              {formatMassTime(upcoming.mass.time).clock} {formatMassTime(upcoming.mass.time).meridiem}
+              {upcoming.mass.venue ? ` · ${upcoming.mass.venue}` : ""}
+            </Text>
           </View>
           <View style={styles.nextMassRight}>
-            <Text style={styles.nextMassIn}>In 45 min</Text>
-            <TouchableOpacity style={styles.remindBtn}>
-              <Text style={styles.remindText}>{t("home.remind")}</Text>
-            </TouchableOpacity>
+            <Text style={styles.nextMassIn}>{startsIn(upcoming.at)}</Text>
           </View>
         </View>
+        )}
 
         {/* Daily Reading */}
         <TouchableOpacity
           style={styles.readingCard}
           onPress={() =>
-            navigation.navigate(Routes.BibleTab, { screen: Routes.DailyReading })
+            navigation.navigate(Routes.BibleTab, { screen: Routes.DailyReading, initial: false })
           }
         >
           <View style={styles.cardLabelRow}>

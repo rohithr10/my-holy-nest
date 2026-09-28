@@ -14,9 +14,15 @@ import { Colors } from "../../constants/colors";
 import { Spacing, Radius, Shadow } from "../../constants/spacing";
 import { Routes } from "../../constants/routes";
 import Badge from "../../components/common/Badge/Badge";
-import type { MassTiming } from "../../types";
 import { SafeAreaView } from "react-native-safe-area-context";
 import TopSafeArea from "../../components/common/TopSafeArea/TopSafeArea";
+import {
+  useMassTimings,
+  useLiveStream,
+  timingsForDay,
+  upcomingSpecial,
+  formatMassTime,
+} from "../../hooks/useMass";
 import { useAppSelector } from "../../hooks/useAppDispatch";
 import { selectChurch } from "../../store/slices/auth.slice";
 import {
@@ -27,86 +33,17 @@ import {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const MOCK_TIMINGS: MassTiming[] = [
-  {
-    _id: "1",
-    churchId: "c1",
-    title: "Tamil Mass",
-    titleTA: "தமிழ் திருப்பலி",
-    dayOfWeek: [0],
-    time: "06:00",
-    language: "ta",
-    venue: "Main Church",
-    priest: "Fr. Thomas Raj",
-    massType: "regular",
-    isActive: true,
-  },
-  {
-    _id: "2",
-    churchId: "c1",
-    title: "English Mass",
-    titleTA: "ஆங்கில திருப்பலி",
-    dayOfWeek: [0],
-    time: "07:30",
-    language: "en",
-    venue: "Main Church",
-    priest: "Fr. Anthony Samy",
-    massType: "regular",
-    isActive: true,
-  },
-  {
-    _id: "3",
-    churchId: "c1",
-    title: "Morning Mass",
-    titleTA: "காலை திருப்பலி",
-    dayOfWeek: [1, 2, 3, 4, 5, 6],
-    time: "06:30",
-    language: "both",
-    venue: "Chapel",
-    priest: "Fr. Joseph",
-    massType: "regular",
-    isActive: true,
-  },
-  {
-    _id: "4",
-    churchId: "c1",
-    title: "Evening Mass",
-    titleTA: "மாலை திருப்பலி",
-    dayOfWeek: [1, 2, 3, 4, 5, 6],
-    time: "18:30",
-    language: "both",
-    venue: "Main Church",
-    priest: "Fr. Thomas Raj",
-    massType: "regular",
-    isActive: true,
-  },
-];
-
-const SPECIAL: MassTiming[] = [
-  {
-    _id: "s1",
-    churchId: "c1",
-    title: "Sacred Heart Feast Mass",
-    titleTA: "திருவிழா திருப்பலி",
-    specificDate: "2026-06-19",
-    time: "06:00",
-    language: "both",
-    venue: "Main Church",
-    priest: "Bishop Joseph",
-    massType: "feast",
-    isActive: true,
-  },
-];
-
 export default function MassHomeScreen() {
   const navigation = useNavigation<any>();
   const church = useAppSelector(selectChurch);
   const today = new Date().getDay();
   const [selectedDay, setSelectedDay] = useState(today);
 
-  const todayTimings = MOCK_TIMINGS.filter((m) =>
-    m.dayOfWeek?.includes(selectedDay),
-  );
+  const timings = useMassTimings();
+  const live = useLiveStream();
+  const stream = live.data;
+  const todayTimings = timingsForDay(timings.data, selectedDay);
+  const special = upcomingSpecial(timings.data);
 
   return (
     <SafeAreaView style={styles.container} edges={["left", "right"]}>
@@ -119,43 +56,55 @@ export default function MassHomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Mass</Text>
-        <Text style={styles.headerSub}>St. Mary's Basilica</Text>
+        <Text style={styles.headerSub}>{church?.name}</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Live Now Banner */}
-        <TouchableOpacity
-          style={styles.liveBanner}
-          onPress={() =>
-            navigation.navigate(Routes.LiveMass, {
-              videoId: "dQw4w9WgXcQ",
-              title: "Sunday Holy Mass",
-            })
-          }
-        >
-          <View>
-            <View style={styles.liveRow}>
-              <View style={styles.livePulse} />
-              <Text style={styles.liveLabel}>LIVE NOW</Text>
+        {/* Live / upcoming stream */}
+        {stream && (
+          <TouchableOpacity
+            style={styles.liveBanner}
+            onPress={() =>
+              navigation.navigate(Routes.LiveMass, {
+                videoId: stream.youtubeVideoId,
+                title: stream.title,
+              })
+            }
+          >
+            <View style={{ flex: 1 }}>
+              <View style={styles.liveRow}>
+                {stream.status === "live" && <View style={styles.livePulse} />}
+                <Text style={styles.liveLabel}>
+                  {stream.status === "live" ? "LIVE NOW" : "UPCOMING STREAM"}
+                </Text>
+              </View>
+              <Text style={styles.liveMassName}>{stream.title}</Text>
+              <View style={styles.liveWatchingRow}>
+                <MaterialCommunityIcons
+                  name={stream.status === "live" ? "youtube" : "clock-outline"}
+                  size={14}
+                  color={Colors.sky.blueLight}
+                />
+                <Text style={styles.liveWatching}>
+                  {stream.status === "live"
+                    ? "Watch on YouTube"
+                    : new Date(stream.scheduledAt).toLocaleString("en-IN", {
+                        weekday: "short",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                </Text>
+              </View>
             </View>
-            <Text style={styles.liveMassName}>Sunday Holy Mass</Text>
-            <View style={styles.liveWatchingRow}>
+            <View style={styles.livePlayBtn}>
               <MaterialCommunityIcons
-                name="eye-outline"
-                size={14}
-                color={Colors.sky.blueLight}
+                name="play"
+                size={26}
+                color={Colors.neutral.white}
               />
-              <Text style={styles.liveWatching}>432 watching</Text>
             </View>
-          </View>
-          <View style={styles.livePlayBtn}>
-            <MaterialCommunityIcons
-              name="play"
-              size={26}
-              color={Colors.neutral.white}
-            />
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
 
         {/* Day Selector */}
         <ScrollView
@@ -190,7 +139,15 @@ export default function MassHomeScreen() {
             {selectedDay === today ? "Today" : DAYS[selectedDay]} — Mass
             Schedule
           </Text>
-          {todayTimings.length === 0 ? (
+          {timings.isLoading ? (
+            <View style={styles.noMass}>
+              <Text style={styles.noMassText}>Loading the schedule…</Text>
+            </View>
+          ) : timings.isError ? (
+            <TouchableOpacity style={styles.noMass} onPress={() => timings.refetch()}>
+              <Text style={styles.noMassText}>Couldn't load the schedule. Tap to try again.</Text>
+            </TouchableOpacity>
+          ) : todayTimings.length === 0 ? (
             <View style={styles.noMass}>
               <Text style={styles.noMassText}>No mass scheduled</Text>
             </View>
@@ -198,14 +155,14 @@ export default function MassHomeScreen() {
             todayTimings.map((mass) => (
               <View key={mass._id} style={styles.massCard}>
                 <View style={styles.massTimeCol}>
-                  <Text style={styles.massTime}>{mass.time}</Text>
+                  <Text style={styles.massTime}>{formatMassTime(mass.time).clock}</Text>
                   <Text style={styles.massMeridiem}>
-                    {parseInt(mass.time) < 12 ? "AM" : "PM"}
+                    {formatMassTime(mass.time).meridiem}
                   </Text>
                 </View>
                 <View style={styles.massInfo}>
                   <Text style={styles.massTitle}>{mass.title}</Text>
-                  <Text style={styles.massTitleTA}>{mass.titleTA}</Text>
+                  {!!mass.titleTA && <Text style={styles.massTitleTA}>{mass.titleTA}</Text>}
                   {/* <Text style={styles.massPriest}>Fr. {mass.priest?.replace('Fr. ', '')}</Text> */}
                   <View style={styles.venueRow}>
                     <MaterialCommunityIcons
@@ -228,26 +185,22 @@ export default function MassHomeScreen() {
                     variant={mass.language === "ta" ? "navy" : "gold"}
                     size="sm"
                   />
-                  <TouchableOpacity style={styles.remindBtn}>
-                    <MaterialCommunityIcons
-                      name="bell-outline"
-                      size={20}
-                      color={Colors.accent.goldDark}
-                    />
-                  </TouchableOpacity>
                 </View>
               </View>
             ))
           )}
         </View>
 
-        {/* Special Masses */}
+        {/* Special Masses — one-off dated timings set by the parish */}
+        {special.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Upcoming Special Masses</Text>
-          {SPECIAL.map((m) => (
+          {special.map((m) => (
             <View key={m._id} style={[styles.massCard, styles.specialCard]}>
               <View style={styles.massTimeCol}>
-                <Text style={styles.specialDate}>Jun 19</Text>
+                <Text style={styles.specialDate}>
+                  {new Date(m.specificDate!).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                </Text>
               </View>
               <View style={styles.massInfo}>
                 <Text style={styles.massTitle}>{m.title}</Text>
@@ -257,8 +210,11 @@ export default function MassHomeScreen() {
                     size={13}
                     color={Colors.neutral.gray500}
                   />
-                  <Text style={styles.massPriest}>{m.time}</Text>
+                  <Text style={styles.massPriest}>
+                    {formatMassTime(m.time).clock} {formatMassTime(m.time).meridiem}
+                  </Text>
                 </View>
+                {!!m.venue && (
                 <View style={styles.venueRow}>
                   <MaterialCommunityIcons
                     name="map-marker-outline"
@@ -267,11 +223,15 @@ export default function MassHomeScreen() {
                   />
                   <Text style={styles.massVenue}>{m.venue}</Text>
                 </View>
+                )}
               </View>
-              <Badge label="Feast" variant="gold" size="sm" />
+              {m.massType !== "regular" && (
+                <Badge label={m.massType[0].toUpperCase() + m.massType.slice(1)} variant="gold" size="sm" />
+              )}
             </View>
           ))}
         </View>
+        )}
 
         {/* Contact */}
         <View style={styles.contactRow}>

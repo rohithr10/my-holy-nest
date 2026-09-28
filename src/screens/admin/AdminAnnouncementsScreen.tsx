@@ -9,15 +9,14 @@ import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import Button from '../../components/common/Button/Button';
 import { adminApi } from '../../api/admin.api';
-import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
+import { getApiErrorMessage } from '../../api/client';
+import { useAppDispatch } from '../../hooks/useAppDispatch';
+import { useAnnouncements } from '../../hooks/useAnnouncements';
 import {
   addAnnouncement,
   removeAnnouncement,
-  selectAnnouncements,
 } from '../../store/slices/church.slice';
-import { addLocalNotification } from '../../store/slices/notification.slice';
-import { buildLocalNotification } from '../../hooks/useNotifications';
-import { selectChurch } from '../../store/slices/auth.slice';
+import { queryClient } from '../../api/queryClient';
 import { formatAnnouncementDate } from '../../constants/announcements';
 import type { Announcement } from '../../types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -29,8 +28,7 @@ export default function AdminAnnouncementsScreen() {
   const dispatch = useAppDispatch();
   // The same list the app's Home feed and Announcements screen read, so a post
   // made here is visible to members straight away.
-  const announcements = useAppSelector(selectAnnouncements);
-  const church = useAppSelector(selectChurch);
+  const { announcements, refetch } = useAnnouncements();
 
   const [showModal, setShowModal] = useState(false);
   const [title, setTitle] = useState('');
@@ -42,35 +40,30 @@ export default function AdminAnnouncementsScreen() {
     if (!title.trim() || !content.trim()) return;
     setLoading(true);
 
-    const announcement: Announcement = {
-      _id: `a${Date.now()}`,
-      churchId: church?._id ?? 'c1',
+    const payload = {
       title: title.trim(),
       content: content.trim(),
-      type: 'general',
+      type: 'general' as const,
       priority,
-      publishedAt: new Date().toISOString(),
     };
 
-    // Publish to the backend when it's available; the local store is updated
-    // either way so the post never silently disappears.
+    // The server is the source of truth: a post that only lands locally would
+    // vanish on the next refresh and would never reach anyone else's phone.
+    let announcement: Announcement;
     try {
-      const { _id, publishedAt, ...payload } = announcement;
-      await adminApi.postAnnouncement(payload);
-    } catch {
-      /* offline / route not live yet — keep the local copy */
+      const res = await adminApi.postAnnouncement(payload);
+      announcement = res.data.data;
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Could not publish', getApiErrorMessage(err));
+      return;
     }
 
     dispatch(addAnnouncement(announcement));
-    dispatch(
-      addLocalNotification(
-        buildLocalNotification({
-          title: announcement.title,
-          body: announcement.content,
-          type: 'announcement',
-        }),
-      ),
-    );
+    void refetch();
+    // The server notifies every parishioner (this admin included), so no
+    // local notification is added here — it would show up twice.
+    void queryClient.invalidateQueries({ queryKey: ['notifications'] });
 
     setLoading(false);
     setShowModal(false);
@@ -83,8 +76,13 @@ export default function AdminAnnouncementsScreen() {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => {
-          adminApi.deleteAnnouncement(id).catch(() => {});
+        onPress: async () => {
+          try {
+            await adminApi.deleteAnnouncement(id);
+          } catch (err) {
+            Alert.alert('Could not delete', getApiErrorMessage(err));
+            return;
+          }
           dispatch(removeAnnouncement(id));
         },
       },

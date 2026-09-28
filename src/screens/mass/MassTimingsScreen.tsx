@@ -8,40 +8,58 @@ import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useMassTimings, timingsForDay, upcomingSpecial, formatMassTime } from '../../hooks/useMass';
+import { callParish } from '../../utils/contact';
+import type { MassTiming } from '../../types';
 
-const SECTIONS = [
-  {
-    day: 'Weekdays (Mon–Sat)',
-    dayTA: 'திங்கள் - சனி',
-    timings: [
-      { time: '06:30 AM', title: 'Morning Mass', titleTA: 'காலை திருப்பலி', language: 'both', venue: 'Chapel' },
-      { time: '06:30 PM', title: 'Evening Mass', titleTA: 'மாலை திருப்பலி', language: 'both', venue: 'Main Church' },
-    ],
-  },
-  {
-    day: 'Sunday',
-    dayTA: 'ஞாயிறு',
-    timings: [
-      { time: '06:00 AM', title: 'Tamil Mass', titleTA: 'தமிழ் திருப்பலி', language: 'ta', venue: 'Main Church' },
-      { time: '07:30 AM', title: 'English Mass', titleTA: 'ஆங்கில திருப்பலி', language: 'en', venue: 'Main Church' },
-      { time: '09:00 AM', title: 'Tamil Mass', titleTA: 'தமிழ் திருப்பலி', language: 'ta', venue: 'Main Church' },
-      { time: '11:00 AM', title: 'English Mass', titleTA: 'ஆங்கில திருப்பலி', language: 'en', venue: 'Grotto' },
-      { time: '05:30 PM', title: 'Tamil Mass', titleTA: 'மாலை தமிழ் திருப்பலி', language: 'ta', venue: 'Main Church' },
-    ],
-  },
-  {
-    day: 'Holy Days of Obligation',
-    dayTA: 'திருவிழா நாட்கள்',
-    timings: [
-      { time: '06:00 AM', title: 'Feast Mass', titleTA: 'திருவிழா திருப்பலி', language: 'both', venue: 'Main Church' },
-      { time: '09:00 AM', title: 'Solemn Feast Mass', titleTA: 'கொண்டாட்ட திருப்பலி', language: 'both', venue: 'Main Church' },
-      { time: '06:00 PM', title: 'Evening Feast Mass', titleTA: 'மாலை திருவிழா', language: 'both', venue: 'Main Church' },
-    ],
-  },
-];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_NAMES_TA = ['ஞாயிறு', 'திங்கள்', 'செவ்வாய்', 'புதன்', 'வியாழன்', 'வெள்ளி', 'சனி'];
+
+interface Section {
+  day: string;
+  dayTA: string;
+  timings: MassTiming[];
+}
+
+/** "Monday – Saturday" for a consecutive run, "Monday, Wednesday" otherwise. */
+function dayLabel(days: number[], names: string[]): string {
+  const consecutive = days.every((d, i) => i === 0 || d === days[i - 1] + 1);
+  if (days.length > 2 && consecutive) return `${names[days[0]]} – ${names[days[days.length - 1]]}`;
+  return days.map(d => names[d]).join(', ');
+}
+
+/** Groups weekdays that share exactly the same Masses, Sunday first. */
+function buildSections(timings: MassTiming[]): Section[] {
+  const groups = new Map<string, { days: number[]; timings: MassTiming[] }>();
+  for (let day = 0; day < 7; day++) {
+    const list = timingsForDay(timings, day);
+    if (!list.length) continue;
+    const key = list.map(t => t._id).join('|');
+    const g = groups.get(key) ?? { days: [], timings: list };
+    g.days.push(day);
+    groups.set(key, g);
+  }
+  const sections = [...groups.values()].map(g => ({
+    day: dayLabel(g.days, DAY_NAMES),
+    dayTA: dayLabel(g.days, DAY_NAMES_TA),
+    timings: g.timings,
+  }));
+  const special = upcomingSpecial(timings);
+  if (special.length) {
+    sections.push({ day: 'Special Masses', dayTA: 'சிறப்பு திருப்பலிகள்', timings: special });
+  }
+  return sections;
+}
 
 export default function MassTimingsScreen() {
   const navigation = useNavigation<any>();
+  const church = useAppSelector(selectChurch);
+  const { data, isLoading, isError, refetch } = useMassTimings();
+  const sections = buildSections(data ?? []);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -60,25 +78,46 @@ export default function MassTimingsScreen() {
         <View style={styles.churchBanner}>
           <MaterialCommunityIcons name="church" size={36} color={Colors.accent.gold} />
           <View>
-            <Text style={styles.churchName}>St. Mary's Basilica</Text>
-            <Text style={styles.churchArea}>George Town, Chennai</Text>
+            <Text style={styles.churchName}>{church?.name}</Text>
+            {!!church?.address && (
+              <Text style={styles.churchArea}>
+                {[church.address.area, church.address.city].filter(Boolean).join(', ')}
+              </Text>
+            )}
           </View>
         </View>
 
-        {SECTIONS.map((section, si) => (
+        {isLoading && <LoadingSpinner label="Loading the schedule…" />}
+        {!isLoading && !sections.length && (
+          <EmptyState
+            icon="church"
+            title={isError ? "Couldn't load the Mass schedule" : 'No Mass timings published yet'}
+            subtitle={isError ? 'Check your connection and try again.' : 'Please check with the parish office.'}
+            actionLabel={isError ? 'Try again' : undefined}
+            onAction={isError ? () => refetch() : undefined}
+          />
+        )}
+        {sections.map((section, si) => (
           <View key={si} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionDay}>{section.day}</Text>
               <Text style={styles.sectionDayTA}>{section.dayTA}</Text>
             </View>
-            {section.timings.map((t, ti) => (
-              <View key={ti} style={styles.row}>
+            {section.timings.map((t) => (
+              <View key={t._id} style={styles.row}>
                 <View style={styles.timeCol}>
-                  <Text style={styles.time}>{t.time}</Text>
+                  <Text style={styles.time}>
+                    {formatMassTime(t.time).clock} {formatMassTime(t.time).meridiem}
+                  </Text>
+                  {!!t.specificDate && (
+                    <Text style={styles.venue}>
+                      {new Date(t.specificDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.infoCol}>
                   <Text style={styles.massTitle}>{t.title}</Text>
-                  <Text style={styles.massTitleTA}>{t.titleTA}</Text>
+                  {!!t.titleTA && <Text style={styles.massTitleTA}>{t.titleTA}</Text>}
                   <View style={styles.venueRow}>
                     <MaterialCommunityIcons name="map-marker-outline" size={12} color={Colors.neutral.gray400} />
                     <Text style={styles.venue}>{t.venue}</Text>
@@ -107,17 +146,15 @@ export default function MassTimingsScreen() {
           </Text>
         </View>
 
-        <View style={styles.contactCard}>
-          <Text style={styles.contactTitle}>Parish Office</Text>
-          <View style={styles.contactRow}>
-            <MaterialCommunityIcons name="phone-outline" size={15} color={Colors.neutral.gray500} />
-            <Text style={styles.contactText}>+91 44 2534 1234</Text>
+        {!!church?.contact?.phone && (
+          <View style={styles.contactCard}>
+            <Text style={styles.contactTitle}>Parish Office</Text>
+            <TouchableOpacity style={styles.contactRow} onPress={() => callParish(church.contact.phone)}>
+              <MaterialCommunityIcons name="phone-outline" size={15} color={Colors.neutral.gray500} />
+              <Text style={styles.contactText}>{church.contact.phone}</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.contactRow}>
-            <MaterialCommunityIcons name="clock-outline" size={15} color={Colors.neutral.gray500} />
-            <Text style={styles.contactText}>Mon–Sat: 9:00 AM – 5:00 PM</Text>
-          </View>
-        </View>
+        )}
 
         <View style={{ height: 32 }} />
       </ScrollView>

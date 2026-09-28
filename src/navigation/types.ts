@@ -46,14 +46,15 @@ export type DonationStackParamList = {
   [Routes.MakeOffering]: { offeringType?: string; type?: OfferingType };
   [Routes.Subscription]: undefined;
   [Routes.DonationHistory]: undefined;
-  [Routes.DonationReceipt]: { donationId: string; amount?: number; type?: string };
+  [Routes.DonationReceipt]: { donationId: string };
 };
 
 // ─── Family Stack ─────────────────────────────────────────────────────────────
 export type FamilyStackParamList = {
   [Routes.FamilyCard]: undefined;
   [Routes.Members]: undefined;
-  [Routes.AddMember]: undefined;
+  /** Pass memberId to edit an existing member. */
+  [Routes.AddMember]: { memberId?: string } | undefined;
   [Routes.Certificates]: undefined;
   [Routes.CertificateRequest]: { certType?: string };
 };
@@ -65,7 +66,8 @@ export type ProfileStackParamList = {
   [Routes.Language]: undefined;
   [Routes.FamilyCard]: undefined;
   [Routes.Members]: undefined;
-  [Routes.AddMember]: undefined;
+  /** Pass memberId to edit an existing member. */
+  [Routes.AddMember]: { memberId?: string } | undefined;
   [Routes.Certificates]: undefined;
   [Routes.CertificateRequest]: { certType?: string };
   [Routes.ChurchTransfer]: undefined;

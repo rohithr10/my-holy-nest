@@ -88,7 +88,6 @@ export interface Sacrament {
 
 export interface FamilyMember {
   _id: string;
-  familyId: string;
   userId?: string;
   firstName: string;
   lastName: string;
@@ -217,6 +216,8 @@ export interface Donation {
   intention?: string;
   isAnonymous: boolean;
   status: 'pending' | 'completed' | 'failed' | 'refunded';
+  /** online = paid in the app; others were recorded by the parish office. */
+  method?: 'online' | 'cash' | 'cheque' | 'upi' | 'bank_transfer';
   receiptUrl?: string;
   receiptNumber?: string;
   processedAt?: string;
@@ -237,6 +238,7 @@ export type CertType =
   | 'holy_communion'
   | 'confirmation'
   | 'marriage'
+  | 'death'
   | 'transfer'
   | 'general';
 
@@ -244,7 +246,7 @@ export interface CertificateRequest {
   _id: string;
   churchId: string;
   requestedBy: string;
-  memberId: string;
+  memberId?: string;
   memberName: string;
   type: CertType;
   purpose: string;
@@ -329,12 +331,17 @@ export interface MediaItem {
 
 // ─── Transfer ─────────────────────────────────────────────────────────────────
 
+/** A church as populated on a transfer request (name, code and address only). */
+export type TransferChurch = Pick<Church, '_id' | 'name' | 'code'> & { address?: Address };
+
 export interface TransferRequest {
   _id: string;
   familyId: string;
-  sourceChurch: Church;
-  destinationChurch: Church;
+  /** Populated by GET /transfers/me; a bare id elsewhere. */
+  sourceChurchId: TransferChurch | string;
+  destinationChurchId: TransferChurch | string;
   reason: string;
+  rejectionReason?: string;
   status:
     | 'pending_source'
     | 'approved_source'

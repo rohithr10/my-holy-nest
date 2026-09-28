@@ -22,41 +22,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
 
-// Mock data — will be replaced with API call
-const MOCK_CHURCHES: Church[] = [
-  {
-    _id: '1',
-    dioceseId: 'd1',
-    name: "St. Mary's Basilica",
-    nameTA: 'புனித மரியன் பசிலிக்கா',
-    code: 'SMB-001',
-    address: { street: '38, Armenian St', area: 'Santhome', city: 'Chennai', pincode: '600004' },
-    contact: { phone: '+91 44 2844 0055', email: 'info@stmarys.in' },
-    youtubeChannelId: 'UC...',
-    stats: { totalFamilies: 1240, totalMembers: 4860 },
-  },
-  {
-    _id: '2',
-    dioceseId: 'd1',
-    name: 'Santhome Cathedral',
-    nameTA: 'சந்தோம் கதீட்ரல்',
-    code: 'SC-002',
-    address: { street: 'San Thome High Rd', area: 'Santhome', city: 'Chennai', pincode: '600004' },
-    contact: { phone: '+91 44 2461 1025', email: 'info@santhome.in' },
-    stats: { totalFamilies: 980, totalMembers: 3800 },
-  },
-  {
-    _id: '3',
-    dioceseId: 'd1',
-    name: 'Our Lady of Lourdes',
-    nameTA: 'லூர்து மாதா திருச்சபை',
-    code: 'OLL-003',
-    address: { street: '18, Chamiers Rd', area: 'R.A. Puram', city: 'Chennai', pincode: '600028' },
-    contact: { phone: '+91 44 2461 3041', email: 'info@lourdes.in' },
-    stats: { totalFamilies: 750, totalMembers: 2900 },
-  },
-];
-
 type Props = NativeStackScreenProps<AuthStackParamList, typeof Routes.ChurchSelection>;
 
 export default function ChurchSelectionScreen({ navigation }: Props) {
@@ -64,9 +29,11 @@ export default function ChurchSelectionScreen({ navigation }: Props) {
   const [search, setSearch] = useState('');
   const [churches, setChurches] = useState<Church[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
-  // Fetch from the API, debounced on the search term. Falls back to mock data
-  // if the backend is unreachable so the flow still works offline.
+  // Fetch from the API, debounced on the search term. A failure is shown as
+  // an error with a retry — never as sample parishes, whose ids don't exist.
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -75,17 +42,11 @@ export default function ChurchSelectionScreen({ navigation }: Props) {
         const res = await churchApi.search(search.trim());
         if (!active) return;
         setChurches(res.data.data);
+        setError(false);
       } catch {
         if (!active) return;
-        const q = search.toLowerCase();
-        setChurches(
-          MOCK_CHURCHES.filter(
-            c =>
-              c.name.toLowerCase().includes(q) ||
-              c.address.area?.toLowerCase().includes(q) ||
-              c.address.city.toLowerCase().includes(q),
-          ),
-        );
+        setChurches([]);
+        setError(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -94,7 +55,7 @@ export default function ChurchSelectionScreen({ navigation }: Props) {
       active = false;
       clearTimeout(handle);
     };
-  }, [search]);
+  }, [search, attempt]);
 
   const filtered = churches;
 
@@ -112,10 +73,12 @@ export default function ChurchSelectionScreen({ navigation }: Props) {
       </View>
       <View style={styles.cardCenter}>
         <Text style={styles.churchName}>{item.name}</Text>
-        <Text style={styles.churchNameTA}>{item.nameTA}</Text>
-        <Text style={styles.churchArea}>{item.address.area}, {item.address.city}</Text>
+        {!!item.nameTA && <Text style={styles.churchNameTA}>{item.nameTA}</Text>}
+        <Text style={styles.churchArea}>
+          {[item.address?.area, item.address?.city].filter(Boolean).join(', ')}
+        </Text>
         <Text style={styles.churchStats}>
-          {item.stats.totalFamilies.toLocaleString()} families
+          {item.stats.totalFamilies.toLocaleString()} {item.stats.totalFamilies === 1 ? 'family' : 'families'}
         </Text>
       </View>
       <MaterialCommunityIcons name="chevron-right" style={styles.chevron} />
@@ -163,7 +126,18 @@ export default function ChurchSelectionScreen({ navigation }: Props) {
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No churches found</Text>
+              {error ? (
+                <>
+                  <Text style={styles.emptyText}>Couldn't load parishes. Check your connection.</Text>
+                  <TouchableOpacity onPress={() => setAttempt(a => a + 1)} style={styles.retryBtn}>
+                    <Text style={styles.retryText}>Try again</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={styles.emptyText}>
+                  {search.trim() ? `No parish matches "${search.trim()}"` : 'No parishes available yet'}
+                </Text>
+              )}
             </View>
           }
         />
@@ -227,4 +201,6 @@ const styles = StyleSheet.create({
   emptyText: { color: Colors.neutral.gray400, fontSize: 15 },
   footer: { padding: Spacing.screen, alignItems: 'center' },
   footerText: { color: Colors.sky.blue, fontSize: 13 },
+  retryBtn: { marginTop: Spacing.md, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: Radius.full, backgroundColor: Colors.accent.gold },
+  retryText: { color: Colors.neutral.white, fontWeight: '700' },
 });

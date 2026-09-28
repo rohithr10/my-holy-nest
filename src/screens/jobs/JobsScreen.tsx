@@ -1,27 +1,40 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, StatusBar, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, StatusBar, TouchableOpacity, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useJobs } from '../../hooks/useCommunity';
+import type { JobPosting } from '../../types';
 
-const JOBS = [
-  { id: 'j1', title: 'Software Engineer', company: 'TCS Chennai', type: 'Full-time', salary: '₹8–12 LPA', posted: '2 days ago', location: 'Chennai' },
-  { id: 'j2', title: 'School Teacher', company: 'Don Bosco School', type: 'Full-time', salary: '₹3–5 LPA', posted: '5 days ago', location: 'Mylapore' },
-  { id: 'j3', title: 'Nurse', company: 'Apollo Hospital', type: 'Full-time', salary: '₹4–6 LPA', posted: '1 week ago', location: 'Chennai' },
-  { id: 'j4', title: 'Accounts Executive', company: 'Local Business', type: 'Part-time', salary: '₹15K/month', posted: '1 week ago', location: 'Triplicane' },
-  { id: 'j5', title: 'Driver', company: 'Parish Family', type: 'Part-time', salary: '₹12K/month', posted: '2 weeks ago', location: 'Mylapore' },
-];
+const TYPE_LABEL: Record<JobPosting['type'], string> = {
+  full_time: 'Full-time',
+  part_time: 'Part-time',
+  volunteer: 'Volunteer',
+  contract: 'Contract',
+};
+const FILTERS: ('all' | JobPosting['type'])[] = ['all', 'full_time', 'part_time', 'volunteer'];
 
-const TYPES = ['All', 'Full-time', 'Part-time'];
+function posted(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days < 1) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} week${days < 14 ? '' : 's'} ago`;
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
 
 export default function JobsScreen() {
   const navigation = useNavigation<any>();
-  const [filter, setFilter] = useState('All');
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all');
+  const [open, setOpen] = useState<string | null>(null);
+  const { data, isLoading, isError, refetch, isRefetching } = useJobs();
 
-  const filtered = JOBS.filter(j => filter === 'All' || j.type === filter);
+  const filtered = (data ?? []).filter(j => filter === 'all' || j.type === filter);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -34,42 +47,66 @@ export default function JobsScreen() {
       </View>
 
       <View style={styles.filterRow}>
-        {TYPES.map(t => (
+        {FILTERS.map(t => (
           <TouchableOpacity
             key={t}
             style={[styles.filterPill, filter === t && styles.filterPillActive]}
             onPress={() => setFilter(t)}>
-            <Text style={[styles.filterText, filter === t && styles.filterTextActive]}>{t}</Text>
+            <Text style={[styles.filterText, filter === t && styles.filterTextActive]}>
+              {t === 'all' ? 'All' : TYPE_LABEL[t]}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner fullScreen />
+      ) : (
       <FlatList
         data={filtered}
-        keyExtractor={j => j.id}
+        keyExtractor={j => j._id}
         contentContainerStyle={styles.list}
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="briefcase-outline"
+            title={isError ? "Couldn't load job postings" : 'No openings right now'}
+            subtitle={isError ? 'Check your connection and pull down to retry.' : undefined}
+          />
+        }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card}>
+          <TouchableOpacity style={styles.card} onPress={() => setOpen(open === item._id ? null : item._id)}>
             <View style={styles.cardTop}>
               <View style={styles.jobIcon}>
                 <MaterialCommunityIcons name="briefcase-outline" style={styles.jobIconText} />
               </View>
               <View style={styles.jobInfo}>
                 <Text style={styles.jobTitle}>{item.title}</Text>
-                <Text style={styles.company}>{item.company}</Text>
-                <Text style={styles.location}><MaterialCommunityIcons name="map-marker-outline" size={13} /> {item.location}</Text>
+                {!!item.contactName && <Text style={styles.company}>{item.contactName}</Text>}
+                {!!item.location && (
+                  <Text style={styles.location}><MaterialCommunityIcons name="map-marker-outline" size={13} /> {item.location}</Text>
+                )}
               </View>
-              <View style={[styles.typeBadge, item.type === 'Part-time' ? styles.typePart : styles.typeFull]}>
-                <Text style={styles.typeText}>{item.type}</Text>
+              <View style={[styles.typeBadge, item.type === 'full_time' ? styles.typeFull : styles.typePart]}>
+                <Text style={styles.typeText}>{TYPE_LABEL[item.type]}</Text>
               </View>
             </View>
+            {open === item._id && !!item.description && <Text style={styles.description}>{item.description}</Text>}
             <View style={styles.cardFooter}>
-              <Text style={styles.salary}><MaterialCommunityIcons name="cash-multiple" size={13} /> {item.salary}</Text>
-              <Text style={styles.posted}>{item.posted}</Text>
+              {item.contactPhone ? (
+                <TouchableOpacity onPress={() => Linking.openURL(`tel:${item.contactPhone}`)}>
+                  <Text style={styles.salary}><MaterialCommunityIcons name="phone-outline" size={13} /> {item.contactPhone}</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.posted}>Ask at the parish office</Text>
+              )}
+              <Text style={styles.posted}>{posted(item.createdAt)}</Text>
             </View>
           </TouchableOpacity>
         )}
       />
+      )}
     </SafeAreaView>
   );
 }
@@ -100,4 +137,5 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.neutral.gray100 },
   salary: { fontSize: 13, color: Colors.semantic.success, fontWeight: '600' },
   posted: { fontSize: 12, color: Colors.neutral.gray400 },
+  description: { fontSize: 13, color: Colors.neutral.gray600, marginBottom: Spacing.sm, lineHeight: 19 },
 });

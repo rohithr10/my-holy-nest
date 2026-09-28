@@ -6,22 +6,35 @@ import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
-
-const CONTACTS = [
-  { icon: 'phone-outline', label: 'Parish Phone', value: '+91 44 2534 1234', action: () => Linking.openURL('tel:+914425341234') },
-  { icon: 'email-outline', label: 'Email', value: 'office@stmarysbasilica.com', action: () => Linking.openURL('mailto:office@stmarysbasilica.com') },
-  { icon: 'map-marker-outline', label: 'Address', value: 'Sannidhi Street, George Town, Chennai — 600 001', action: null },
-  { icon: 'clock-outline', label: 'Office Hours', value: 'Mon–Sat: 9:00 AM – 5:00 PM', action: null },
-];
-
-const PRIESTS = [
-  { name: 'Fr. Thomas Raj', role: 'Parish Priest', initial: 'T' },
-  { name: 'Fr. Anthony Samy', role: 'Assistant Priest', initial: 'A' },
-  { name: 'Fr. Joseph Xavier', role: 'Deacon', initial: 'J' },
-];
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { callParish, emailParish, openDirections, formatAddress } from '../../utils/contact';
 
 export default function ContactScreen() {
   const navigation = useNavigation<any>();
+  const church = useAppSelector(selectChurch);
+  const address = formatAddress(church?.address);
+
+  // Only the details the parish has entered; nothing is shown for the rest.
+  const contacts = [
+    church?.contact?.phone && {
+      icon: 'phone-outline', label: 'Parish Phone', value: church.contact.phone,
+      action: () => callParish(church.contact.phone),
+    },
+    church?.contact?.email && {
+      icon: 'email-outline', label: 'Email', value: church.contact.email,
+      action: () => emailParish(church.contact.email, 'Parish enquiry'),
+    },
+    church?.contact?.website && {
+      icon: 'web', label: 'Website', value: church.contact.website,
+      action: () => Linking.openURL(/^https?:/.test(church.contact.website!) ? church.contact.website! : `https://${church.contact.website}`),
+    },
+    address && {
+      icon: 'map-marker-outline', label: 'Address', value: address,
+      action: () => openDirections(church),
+    },
+  ].filter(Boolean) as { icon: string; label: string; value: string; action: () => void }[];
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <TopSafeArea color={Colors.primary.navy} />
@@ -34,41 +47,34 @@ export default function ContactScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.churchBanner}>
           <MaterialCommunityIcons name="church" style={styles.churchIcon} />
-          <Text style={styles.churchName}>St. Mary's Basilica</Text>
-          <Text style={styles.churchTA}>செயின்ட் மேரீஸ் பசிலிகா</Text>
+          <Text style={styles.churchName}>{church?.name}</Text>
+          {!!church?.nameTA && <Text style={styles.churchTA}>{church.nameTA}</Text>}
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contact Details</Text>
           <View style={styles.card}>
-            {CONTACTS.map((c, i) => (
+            {!contacts.length && (
+              <View style={styles.contactRow}>
+                <Text style={styles.contactLabel}>
+                  Your parish hasn't added its contact details yet.
+                </Text>
+              </View>
+            )}
+            {contacts.map((c, i) => (
               <TouchableOpacity
-                key={i}
-                style={[styles.contactRow, i < CONTACTS.length - 1 && styles.rowBorder]}
-                onPress={c.action ?? undefined}
-                disabled={!c.action}>
+                key={c.label}
+                style={[styles.contactRow, i < contacts.length - 1 && styles.rowBorder]}
+                onPress={c.action}>
                 <MaterialCommunityIcons name={c.icon} style={styles.contactIcon} />
                 <View style={styles.contactInfo}>
                   <Text style={styles.contactLabel}>{c.label}</Text>
-                  <Text style={[styles.contactValue, c.action && styles.contactValueLink]}>{c.value}</Text>
+                  <Text style={[styles.contactValue, styles.contactValueLink]}>{c.value}</Text>
                 </View>
-                {c.action && <MaterialCommunityIcons name="chevron-right" style={styles.rowArrow} />}
+                <MaterialCommunityIcons name="chevron-right" style={styles.rowArrow} />
               </TouchableOpacity>
             ))}
           </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Parish Clergy</Text>
-          {PRIESTS.map((p, i) => (
-            <View key={i} style={styles.priestCard}>
-              <View style={styles.priestAvatar}><Text style={styles.priestAvatarText}>{p.initial}</Text></View>
-              <View>
-                <Text style={styles.priestName}>{p.name}</Text>
-                <Text style={styles.priestRole}>{p.role}</Text>
-              </View>
-            </View>
-          ))}
         </View>
         <View style={{ height: 32 }} />
       </ScrollView>

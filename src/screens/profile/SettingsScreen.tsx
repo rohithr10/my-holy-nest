@@ -1,42 +1,132 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  StatusBar, TouchableOpacity, Switch,
+  StatusBar, TouchableOpacity, Switch, TextInput, Alert, Linking,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import { useAppDispatch, useAppSelector } from '../../hooks/useAppDispatch';
-import { selectUser, updateLanguage } from '../../store/slices/auth.slice';
+import { selectUser, selectChurch, updateLanguage, updateUser } from '../../store/slices/auth.slice';
+import { toggleNightMode, selectNightMode } from '../../store/slices/bible.slice';
+import { userApi, type PreferencesUpdate } from '../../api/user.api';
+import { authApi } from '../../api/auth.api';
+import { getApiErrorMessage } from '../../api/client';
+import { Config } from '../../constants/config';
+import Button from '../../components/common/Button/Button';
 import { setAppLanguage, type AppLanguage } from '../../i18n';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
 
+type Panel = 'password' | 'email' | null;
+
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const dispatch = useAppDispatch();
   const user = useAppSelector(selectUser);
+  const church = useAppSelector(selectChurch);
+  const nightMode = useAppSelector(selectNightMode);
   const { t, i18n } = useTranslation();
+  const prefs = user?.preferences.notifications;
 
-  const [notifMass, setNotifMass] = useState(true);
-  const [notifDonations, setNotifDonations] = useState(true);
-  const [notifAnnouncements, setNotifAnnouncements] = useState(true);
-  const [notifCertificates, setNotifCertificates] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const currentLang = (i18n.language as AppLanguage) ?? 'en';
 
+  /** Saves a preference change; the screen updates at once and rolls back on failure. */
+  const savePreferences = async (change: PreferencesUpdate, undo: () => void) => {
+    try {
+      const res = await userApi.updatePreferences(change);
+      dispatch(updateUser({ preferences: res.data.data.preferences }));
+    } catch (err) {
+      undo();
+      Alert.alert("Couldn't save your settings", getApiErrorMessage(err));
+    }
+  };
+
   const toggleLang = (lang: AppLanguage) => {
+    const previous = currentLang;
     dispatch(updateLanguage(lang));
     setAppLanguage(lang);
+    void savePreferences({ language: lang }, () => {
+      dispatch(updateLanguage(previous));
+      setAppLanguage(previous);
+    });
   };
+
+  const toggleNotification = (key: keyof NonNullable<typeof prefs>, value: boolean) => {
+    if (!user) return;
+    const before = user.preferences;
+    dispatch(updateUser({ preferences: { ...before, notifications: { ...before.notifications, [key]: value } } }));
+    void savePreferences({ notifications: { [key]: value } }, () => dispatch(updateUser({ preferences: before })));
+  };
+
+  const openPanel = (p: Panel) => {
+    setPanel(panel === p ? null : p);
+    setError('');
+  };
+
+  const changePassword = async () => {
+    if (!pw.current) return setError('Enter your current password.');
+    if (pw.next.length < 6) return setError('The new password must be at least 6 characters.');
+    if (pw.next !== pw.confirm) return setError("The new passwords don't match.");
+    setSaving(true);
+    setError('');
+    try {
+      await authApi.changePassword({ currentPassword: pw.current, newPassword: pw.next });
+      setPw({ current: '', next: '', confirm: '' });
+      setPanel(null);
+      Alert.alert('Password changed', 'Use your new password the next time you sign in.');
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEmail = async () => {
+    const value = email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(value)) return setError('Enter a valid email address.');
+    setSaving(true);
+    setError('');
+    try {
+      const res = await userApi.updateMe({ email: value });
+      dispatch(updateUser({ email: res.data.data.email }));
+      setPanel(null);
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // The mobile number is the account's sign-in identity and there's no
+  // self-service way to change it or erase an account yet, so these go
+  // through the parish office.
+  const viaParishOffice = (what: string) =>
+    Alert.alert(
+      what,
+      `Please contact the ${church?.name ?? 'parish'} office${church?.contact?.phone ? ` (${church.contact.phone})` : ''} — they will verify your identity and make the change for you.`,
+    );
+
+  const notificationRows: { key: keyof NonNullable<typeof prefs>; label: string }[] = [
+    { key: 'mass', label: t('profile.notification_mass') },
+    { key: 'donations', label: t('profile.notification_donations') },
+    { key: 'announcements', label: t('profile.notification_announcements') },
+    { key: 'certificates', label: t('profile.notification_certificates') },
+  ];
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <TopSafeArea color={Colors.neutral.white} />
       <StatusBar barStyle="dark-content" />
+
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" style={styles.backIcon} />
@@ -45,7 +135,7 @@ export default function SettingsScreen() {
         <View style={{ width: 32 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* Language */}
         <Text style={styles.sectionTitle}>{t('profile.language')}</Text>
         <View style={styles.card}>
@@ -66,17 +156,12 @@ export default function SettingsScreen() {
         {/* Notifications */}
         <Text style={styles.sectionTitle}>{t('profile.notifications')}</Text>
         <View style={styles.card}>
-          {[
-            { label: t('profile.notification_mass'), value: notifMass, setter: setNotifMass },
-            { label: t('profile.notification_donations'), value: notifDonations, setter: setNotifDonations },
-            { label: t('profile.notification_announcements'), value: notifAnnouncements, setter: setNotifAnnouncements },
-            { label: t('profile.notification_certificates'), value: notifCertificates, setter: setNotifCertificates },
-          ].map((item, i, arr) => (
-            <View key={i} style={[styles.switchRow, i < arr.length - 1 && styles.switchRowBorder]}>
+          {notificationRows.map((item, i, arr) => (
+            <View key={item.key} style={[styles.switchRow, i < arr.length - 1 && styles.switchRowBorder]}>
               <Text style={styles.switchLabel}>{item.label}</Text>
               <Switch
-                value={item.value}
-                onValueChange={item.setter}
+                value={prefs?.[item.key] ?? true}
+                onValueChange={v => toggleNotification(item.key, v)}
                 trackColor={{ false: Colors.neutral.gray200, true: Colors.accent.gold }}
                 thumbColor={Colors.neutral.white}
               />
@@ -90,8 +175,10 @@ export default function SettingsScreen() {
           <View style={styles.switchRow}>
             <Text style={styles.switchLabel}>{t('profile.dark_mode')}</Text>
             <Switch
-              value={darkMode}
-              onValueChange={setDarkMode}
+              value={nightMode}
+              onValueChange={() => {
+                dispatch(toggleNightMode());
+              }}
               trackColor={{ false: Colors.neutral.gray200, true: Colors.accent.gold }}
               thumbColor={Colors.neutral.white}
             />
@@ -101,36 +188,67 @@ export default function SettingsScreen() {
         {/* Account */}
         <Text style={styles.sectionTitle}>{t('profile.account')}</Text>
         <View style={styles.card}>
-          {[
-            { icon: 'lock-outline', label: t('profile.change_password') },
-            { icon: 'phone-outline', label: t('profile.update_mobile') },
-            { icon: 'email-outline', label: t('profile.update_email') },
-            { icon: 'trash-can-outline', label: t('profile.delete_account'), danger: true },
-          ].map((item, i, arr) => (
-            <TouchableOpacity
-              key={i}
-              style={[styles.menuRow, i < arr.length - 1 && styles.menuRowBorder]}>
-              <MaterialCommunityIcons name={item.icon} style={styles.menuIcon} />
-              <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>{item.label}</Text>
-              <MaterialCommunityIcons name="chevron-right" style={styles.menuArrow} />
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity style={[styles.menuRow, styles.menuRowBorder]} onPress={() => openPanel('password')}>
+            <MaterialCommunityIcons name="lock-outline" style={styles.menuIcon} />
+            <Text style={styles.menuLabel}>{t('profile.change_password')}</Text>
+            <MaterialCommunityIcons name={panel === 'password' ? 'chevron-up' : 'chevron-down'} style={styles.menuArrow} />
+          </TouchableOpacity>
+          {panel === 'password' && (
+            <View style={styles.panel}>
+              <TextInput style={styles.input} placeholder="Current password" secureTextEntry value={pw.current}
+                onChangeText={v => setPw({ ...pw, current: v })} placeholderTextColor={Colors.neutral.gray400} />
+              <TextInput style={styles.input} placeholder="New password (at least 6 characters)" secureTextEntry value={pw.next}
+                onChangeText={v => setPw({ ...pw, next: v })} placeholderTextColor={Colors.neutral.gray400} />
+              <TextInput style={styles.input} placeholder="Confirm new password" secureTextEntry value={pw.confirm}
+                onChangeText={v => setPw({ ...pw, confirm: v })} placeholderTextColor={Colors.neutral.gray400} />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button title="Change Password" onPress={changePassword} loading={saving} fullWidth />
+            </View>
+          )}
+
+          <TouchableOpacity style={[styles.menuRow, styles.menuRowBorder]} onPress={() => openPanel('email')}>
+            <MaterialCommunityIcons name="email-outline" style={styles.menuIcon} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuLabel}>{t('profile.update_email')}</Text>
+              {!!user?.email && <Text style={styles.menuSub}>{user.email}</Text>}
+            </View>
+            <MaterialCommunityIcons name={panel === 'email' ? 'chevron-up' : 'chevron-down'} style={styles.menuArrow} />
+          </TouchableOpacity>
+          {panel === 'email' && (
+            <View style={styles.panel}>
+              <TextInput style={styles.input} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none"
+                value={email} onChangeText={setEmail} placeholderTextColor={Colors.neutral.gray400} />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button title="Save Email" onPress={saveEmail} loading={saving} fullWidth />
+            </View>
+          )}
+
+          <TouchableOpacity style={[styles.menuRow, styles.menuRowBorder]} onPress={() => viaParishOffice(t('profile.update_mobile'))}>
+            <MaterialCommunityIcons name="phone-outline" style={styles.menuIcon} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuLabel}>{t('profile.update_mobile')}</Text>
+              {!!user?.phone && <Text style={styles.menuSub}>+91 {user.phone}</Text>}
+            </View>
+            <MaterialCommunityIcons name="chevron-right" style={styles.menuArrow} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.menuRow} onPress={() => viaParishOffice(t('profile.delete_account'))}>
+            <MaterialCommunityIcons name="trash-can-outline" style={styles.menuIcon} />
+            <Text style={[styles.menuLabel, styles.menuLabelDanger]}>{t('profile.delete_account')}</Text>
+            <MaterialCommunityIcons name="chevron-right" style={styles.menuArrow} />
+          </TouchableOpacity>
         </View>
 
         {/* About */}
         <Text style={styles.sectionTitle}>{t('profile.about_section')}</Text>
         <View style={styles.card}>
-          {[
-            { label: t('profile.app_version'), value: '1.0.0' },
-            { label: t('profile.privacy_policy'), value: '›' },
-            { label: t('profile.terms'), value: '›' },
-            { label: t('profile.contact_support'), value: '›' },
-          ].map((item, i, arr) => (
-            <View key={i} style={[styles.aboutRow, i < arr.length - 1 && styles.switchRowBorder]}>
-              <Text style={styles.aboutLabel}>{item.label}</Text>
-              <Text style={styles.aboutValue}>{item.value}</Text>
-            </View>
-          ))}
+          <View style={[styles.aboutRow, styles.switchRowBorder]}>
+            <Text style={styles.aboutLabel}>{t('profile.app_version')}</Text>
+            <Text style={styles.aboutValue}>{Config.APP_VERSION}</Text>
+          </View>
+          <TouchableOpacity style={styles.aboutRow} onPress={() => Linking.openURL(`mailto:${Config.SUPPORT_EMAIL}`)}>
+            <Text style={styles.aboutLabel}>{t('profile.contact_support')}</Text>
+            <Text style={styles.aboutValue} selectable>{Config.SUPPORT_EMAIL}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={{ height: 32 }} />
@@ -180,4 +298,16 @@ const styles = StyleSheet.create({
   aboutRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.md },
   aboutLabel: { fontSize: 15, color: Colors.neutral.gray800 },
   aboutValue: { fontSize: 14, color: Colors.neutral.gray400 },
+  menuSub: { fontSize: 12, color: Colors.neutral.gray400, marginTop: 1 },
+  panel: { padding: Spacing.md, paddingTop: 0, gap: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.neutral.gray100 },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.neutral.gray200,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.neutral.gray800,
+  },
+  error: { fontSize: 13, color: Colors.semantic.error },
 });

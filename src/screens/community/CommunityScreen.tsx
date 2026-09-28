@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, RefreshControl, Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
@@ -8,22 +8,29 @@ import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import { Routes } from '../../constants/routes';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useGroups, useEvents, useRsvp, GROUP_META, eventDate } from '../../hooks/useCommunity';
+import { getApiErrorMessage } from '../../api/client';
+import type { ClubType } from '../../types';
 
-const GROUPS = [
-  { icon: 'soccer', name: 'Youth Club', nameTA: 'இளைஞர் குழு', members: 48, color: Colors.sky.blue, description: 'Sports, cultural events, camps' },
-  { icon: 'human-female', name: "Women's Club", nameTA: 'மாதர் சங்கம்', members: 120, color: Colors.semantic.error, description: 'Prayer, fellowship, service' },
-  { icon: 'account-heart-outline', name: 'Widow Support', nameTA: 'விதவை உதவி', members: 32, color: Colors.accent.gold, description: 'Counselling and support' },
-  { icon: 'book-multiple-outline', name: 'Children Scholarship', nameTA: 'குழந்தை உதவி', members: 55, color: Colors.semantic.success, description: 'Education sponsorships' },
-];
-
-const UPCOMING = [
-  { title: 'Youth Annual Sports Day', date: 'Jun 22, 2026', icon: 'soccer', type: 'Youth Club' },
-  { title: 'Women\'s Fellowship Meeting', date: 'Jun 15, 2026', icon: 'human-female', type: "Women's Club" },
-  { title: 'Scholarship Distribution', date: 'Jun 10, 2026', icon: 'book-multiple-outline', type: 'Children Scholarship' },
-];
+/** Screen for each kind of group; volunteers has no dedicated screen. */
+const GROUP_ROUTE: Partial<Record<ClubType, string>> = {
+  youth: Routes.YouthClub,
+  women: Routes.WomensClub,
+  widows: Routes.WidowSupport,
+  children: Routes.ChildrenScholarship,
+};
 
 export default function CommunityScreen() {
   const navigation = useNavigation<any>();
+  const church = useAppSelector(selectChurch);
+  const groups = useGroups();
+  const events = useEvents();
+  const rsvp = useRsvp();
+  const groupName = (id?: string) => groups.data?.find(g => g._id === id)?.name;
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -32,40 +39,89 @@ export default function CommunityScreen() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Community</Text>
-        <Text style={styles.headerSub}>St. Mary's Basilica Groups</Text>
+        <Text style={styles.headerSub}>{church?.name} Groups</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={groups.isRefetching || events.isRefetching}
+            onRefresh={() => {
+              groups.refetch();
+              events.refetch();
+            }}
+          />
+        }>
         {/* Groups */}
         <Text style={styles.sectionTitle}>Parish Groups</Text>
-        {GROUPS.map((g, i) => (
-          <TouchableOpacity key={i} style={styles.groupCard}>
-            <View style={[styles.groupIconBg, { backgroundColor: g.color + '20' }]}>
-              <MaterialCommunityIcons name={g.icon} style={styles.groupIcon} />
+        {groups.isLoading && <LoadingSpinner size="small" />}
+        {groups.isError && <Text style={styles.emptyText}>Couldn't load parish groups. Pull down to retry.</Text>}
+        {groups.data && !groups.data.length && (
+          <Text style={styles.emptyText}>The parish hasn't added any groups yet.</Text>
+        )}
+        {groups.data?.map(g => {
+          const meta = GROUP_META[g.type];
+          const route = GROUP_ROUTE[g.type];
+          return (
+          <TouchableOpacity
+            key={g._id}
+            style={styles.groupCard}
+            disabled={!route}
+            onPress={() => route && navigation.navigate(route)}>
+            <View style={[styles.groupIconBg, { backgroundColor: meta.color + '20' }]}>
+              <MaterialCommunityIcons name={meta.icon} style={styles.groupIcon} />
             </View>
             <View style={styles.groupInfo}>
               <Text style={styles.groupName}>{g.name}</Text>
-              <Text style={styles.groupNameTA}>{g.nameTA}</Text>
-              <Text style={styles.groupDesc}>{g.description}</Text>
+              <Text style={styles.groupNameTA}>{meta.nameTA}</Text>
+              {!!g.description && <Text style={styles.groupDesc} numberOfLines={2}>{g.description}</Text>}
             </View>
-            <View style={styles.groupRight}>
-              <Text style={styles.memberCount}>{g.members}</Text>
-              <Text style={styles.memberLabel}>members</Text>
-            </View>
+            {g.membersCount > 0 && (
+              <View style={styles.groupRight}>
+                <Text style={styles.memberCount}>{g.membersCount}</Text>
+                <Text style={styles.memberLabel}>members</Text>
+              </View>
+            )}
           </TouchableOpacity>
-        ))}
+          );
+        })}
 
         {/* Upcoming Events */}
         <Text style={styles.sectionTitle}>Upcoming Events</Text>
-        {UPCOMING.map((e, i) => (
-          <View key={i} style={styles.eventCard}>
-            <MaterialCommunityIcons name={e.icon} style={styles.eventIcon} />
+        {events.isLoading && <LoadingSpinner size="small" />}
+        {events.data && !events.data.length && (
+          <Text style={styles.emptyText}>No upcoming events.</Text>
+        )}
+        {events.data?.map(e => {
+          const full = !!e.maxAttendees && e.rsvpCount >= e.maxAttendees && !e.hasRsvped;
+          return (
+          <View key={e._id} style={styles.eventCard}>
+            <MaterialCommunityIcons name="calendar-star" style={styles.eventIcon} />
             <View style={styles.eventInfo}>
               <Text style={styles.eventTitle}>{e.title}</Text>
-              <Text style={styles.eventMeta}>{e.type} · <MaterialCommunityIcons name="calendar-outline" size={12} /> {e.date}</Text>
+              <Text style={styles.eventMeta}>
+                {groupName(e.communityGroupId) ? `${groupName(e.communityGroupId)} · ` : ''}
+                {eventDate(e)}
+                {e.venue ? ` · ${e.venue}` : ''}
+              </Text>
+              <Text style={styles.eventMeta}>{e.rsvpCount} going</Text>
             </View>
+            <TouchableOpacity
+              style={[styles.rsvpBtn, e.hasRsvped && styles.rsvpBtnActive]}
+              disabled={full || rsvp.isPending}
+              onPress={() =>
+                rsvp.mutate(e._id, {
+                  onError: err => Alert.alert("Couldn't update your RSVP", getApiErrorMessage(err)),
+                })
+              }>
+              <Text style={[styles.rsvpText, e.hasRsvped && styles.rsvpTextActive]}>
+                {e.hasRsvped ? 'Going' : full ? 'Full' : 'RSVP'}
+              </Text>
+            </TouchableOpacity>
           </View>
-        ))}
+          );
+        })}
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -117,4 +173,15 @@ const styles = StyleSheet.create({
   eventInfo: { flex: 1 },
   eventTitle: { fontSize: 14, fontWeight: '600', color: Colors.neutral.gray800 },
   eventMeta: { fontSize: 12, color: Colors.neutral.gray400, marginTop: 2 },
+  emptyText: { fontSize: 14, color: Colors.neutral.gray500, paddingHorizontal: Spacing.screen, marginBottom: Spacing.sm },
+  rsvpBtn: {
+    borderWidth: 1,
+    borderColor: Colors.accent.gold,
+    borderRadius: Radius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  rsvpBtnActive: { backgroundColor: Colors.accent.gold },
+  rsvpText: { fontSize: 12, fontWeight: '700', color: Colors.accent.goldDark },
+  rsvpTextActive: { color: Colors.neutral.white },
 });

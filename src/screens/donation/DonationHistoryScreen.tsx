@@ -10,26 +10,27 @@ import { Routes } from '../../constants/routes';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
-
-const ALL_DONATIONS = [
-  { id: 'd1', type: 'Sunday Offering', amount: 500, date: 'Jun 1, 2026', status: 'completed', txnId: 'TXN001' },
-  { id: 'd2', type: 'Candle Offering', amount: 200, date: 'May 25, 2026', status: 'completed', txnId: 'TXN002' },
-  { id: 'd3', type: 'Church Maintenance', amount: 1000, date: 'May 15, 2026', status: 'completed', txnId: 'TXN003' },
-  { id: 'd4', type: 'Sunday Offering', amount: 500, date: 'May 11, 2026', status: 'completed', txnId: 'TXN004' },
-  { id: 'd5', type: 'Poor Fund', amount: 300, date: 'May 4, 2026', status: 'completed', txnId: 'TXN005' },
-  { id: 'd6', type: 'Feast Fund', amount: 700, date: 'Apr 27, 2026', status: 'completed', txnId: 'TXN006' },
-  { id: 'd7', type: 'Sunday Offering', amount: 500, date: 'Apr 20, 2026', status: 'failed', txnId: 'TXN007' },
-];
-
-const YEARS = ['2026', '2025', '2024'];
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useDonationHistory, OFFERING_LABEL, METHOD_LABEL, inr, donationDate } from '../../hooks/useDonations';
 
 export default function DonationHistoryScreen() {
   const navigation = useNavigation<any>();
-  const [year, setYear] = useState('2026');
+  const { data, isLoading, isError, refetch, isRefetching } = useDonationHistory();
 
-  const total = ALL_DONATIONS
-    .filter(d => d.status === 'completed')
-    .reduce((sum, d) => sum + d.amount, 0);
+  // Years that actually have donations, newest first, plus the current year.
+  const thisYear = new Date().getFullYear();
+  const years = Array.from(
+    new Set([thisYear, ...(data ?? []).map(d => new Date(d.processedAt ?? d.createdAt).getFullYear())]),
+  ).sort((a, b) => b - a);
+  const [year, setYear] = useState(thisYear);
+
+  // Only settled offerings belong in history — an abandoned checkout isn't one.
+  const items = (data ?? []).filter(
+    d => d.status !== 'pending' && new Date(d.processedAt ?? d.createdAt).getFullYear() === year,
+  );
+  const completed = items.filter(d => d.status === 'completed');
+  const total = completed.reduce((sum, d) => sum + d.amount, 0);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -45,7 +46,7 @@ export default function DonationHistoryScreen() {
       </View>
 
       <View style={styles.yearRow}>
-        {YEARS.map(y => (
+        {years.map(y => (
           <TouchableOpacity
             key={y}
             style={[styles.yearPill, year === y && styles.yearPillActive]}
@@ -57,38 +58,59 @@ export default function DonationHistoryScreen() {
 
       <View style={styles.totalCard}>
         <Text style={styles.totalLabel}>Total Given in {year}</Text>
-        <Text style={styles.totalAmount}>₹{total.toLocaleString('en-IN')}</Text>
-        <Text style={styles.totalCount}>{ALL_DONATIONS.filter(d => d.status === 'completed').length} transactions</Text>
+        <Text style={styles.totalAmount}>{inr(total)}</Text>
+        <Text style={styles.totalCount}>
+          {completed.length} {completed.length === 1 ? 'offering' : 'offerings'}
+        </Text>
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
       <FlatList
-        data={ALL_DONATIONS}
-        keyExtractor={d => d.id}
+        data={items}
+        keyExtractor={d => d._id}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="hand-heart-outline"
+            title={isError ? "Couldn't load your donations" : `No offerings in ${year}`}
+            subtitle={isError ? 'Check your connection and pull down to retry.' : undefined}
+          />
+        }
+        renderItem={({ item }) => {
+          const ok = item.status === 'completed';
+          return (
           <TouchableOpacity
             style={styles.row}
-            onPress={() => navigation.navigate(Routes.DonationReceipt, {
-              donationId: item.txnId, amount: item.amount, type: item.type,
-            })}>
-            <View style={[styles.statusDot, item.status === 'completed' ? styles.dotGreen : styles.dotRed]} />
+            disabled={!ok}
+            onPress={() => navigation.navigate(Routes.DonationReceipt, { donationId: item._id })}>
+            <View style={[styles.statusDot, ok ? styles.dotGreen : styles.dotRed]} />
             <View style={styles.rowInfo}>
-              <Text style={styles.rowType}>{item.type}</Text>
-              <Text style={styles.rowDate}>{item.date}</Text>
+              <Text style={styles.rowType}>{OFFERING_LABEL[item.type] ?? item.type}</Text>
+              <Text style={styles.rowDate}>
+                {donationDate(item)}
+                {item.method && item.method !== 'online' ? ` · ${METHOD_LABEL[item.method]} at parish office` : ''}
+                {!ok ? ` · ${item.status}` : ''}
+              </Text>
             </View>
             <View style={styles.rowRight}>
-              <Text style={[styles.rowAmount, item.status === 'failed' && styles.rowAmountFailed]}>
-                {item.status === 'failed' ? '—' : `₹${item.amount}`}
+              <Text style={[styles.rowAmount, !ok && styles.rowAmountFailed]}>
+                {ok ? inr(item.amount) : '—'}
               </Text>
               <MaterialCommunityIcons
-                name={item.status === 'completed' ? 'check-circle' : 'close-circle'}
+                name={ok ? 'check-circle' : 'close-circle'}
                 size={16}
-                color={item.status === 'completed' ? Colors.semantic.success : Colors.semantic.error}
+                color={ok ? Colors.semantic.success : Colors.semantic.error}
               />
             </View>
           </TouchableOpacity>
-        )}
+          );
+        }}
       />
+      )}
     </SafeAreaView>
   );
 }

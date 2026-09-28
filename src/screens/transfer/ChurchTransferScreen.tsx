@@ -1,13 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image,
+  View, Text, StyleSheet, ScrollView,
   StatusBar, TouchableOpacity, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
-import {
-  launchCamera,
-  launchImageLibrary,
-  type Asset,
-} from 'react-native-image-picker';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
@@ -16,72 +12,97 @@ import Button from '../../components/common/Button/Button';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useMyFamily, useMyTransfers, useRequestTransfer } from '../../hooks/useFamily';
+import { churchApi } from '../../api/church.api';
+import { getApiErrorMessage } from '../../api/client';
+import type { Church, TransferRequest } from '../../types';
 
 const REASONS = ['Relocation', 'Work Transfer', 'Marriage', 'Family Preference', 'Distance', 'Other'];
 
-/** Human-readable size for the attached letter. */
-function fileSize(bytes?: number): string {
-  if (!bytes) return '';
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+/** The two approvals a transfer needs, in order. */
+const STEPS: { key: TransferRequest['status'][]; label: string }[] = [
+  { key: ['pending_source'], label: 'Current parish reviews the request' },
+  { key: ['approved_source', 'pending_destination'], label: 'New parish accepts your family' },
+  { key: ['completed'], label: 'Transfer complete' },
+];
+
+const STATUS_TEXT: Record<TransferRequest['status'], string> = {
+  pending_source: 'Waiting for your current parish',
+  approved_source: 'Released — waiting for the new parish',
+  pending_destination: 'Under review at the new parish',
+  completed: 'Completed',
+  rejected: 'Not approved',
+};
+
+function churchName(c: TransferRequest['destinationChurchId']): string {
+  return typeof c === 'string' ? 'Parish' : c.name;
 }
 
 export default function ChurchTransferScreen() {
   const navigation = useNavigation<any>();
-  const [toChurch, setToChurch] = useState('');
+  const church = useAppSelector(selectChurch);
+  const { isHead, isLoading: familyLoading } = useMyFamily();
+  const { data: transfers, isLoading } = useMyTransfers();
+  const request = useRequestTransfer();
+
+  const [search, setSearch] = useState('');
+  const [destination, setDestination] = useState<Church | null>(null);
   const [reason, setReason] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [letter, setLetter] = useState<Asset | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const attach = async (source: 'camera' | 'library') => {
-    const options = { mediaType: 'photo' as const, quality: 0.8 as const };
-    const result =
-      source === 'camera'
-        ? await launchCamera({ ...options, saveToPhotos: false })
-        : await launchImageLibrary({ ...options, selectionLimit: 1 });
+  const results = useQuery({
+    queryKey: ['churches', 'search', search.trim()],
+    enabled: !destination && search.trim().length >= 2,
+    queryFn: async () => (await churchApi.search(search.trim())).data.data,
+  });
+  const options = (results.data ?? []).filter(c => c._id !== church?._id);
 
-    if (result.didCancel) return;
-    if (result.errorCode) {
-      Alert.alert(
-        'Upload Failed',
-        result.errorMessage ??
-          "The letter couldn't be attached. Check the app's camera and photo permissions.",
-      );
-      return;
-    }
-    const asset = result.assets?.[0];
-    if (asset) setLetter(asset);
-  };
-
-  /** The letter is a scan or photo of the parish priest's signed letter. */
-  const pickLetter = () => {
-    Alert.alert('Upload Transfer Letter', 'Attach the letter from your parish priest.', [
-      { text: 'Take Photo', onPress: () => void attach('camera') },
-      { text: 'Choose from Gallery', onPress: () => void attach('library') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
+  const open = transfers?.find(t => t.status !== 'completed' && t.status !== 'rejected');
+  const past = (transfers ?? []).filter(t => t !== open);
 
   const handleSubmit = async () => {
-    if (!toChurch || !reason) {
-      Alert.alert('Missing Fields', 'Please fill all required fields.');
+    if (!destination || !reason) {
+      Alert.alert('Missing details', 'Choose the parish you are moving to and a reason.');
       return;
     }
-    if (!letter) {
+    try {
+      await request.mutateAsync({
+        destinationChurchId: destination._id,
+        reason: [reason, remarks.trim()].filter(Boolean).join(' — '),
+      });
       Alert.alert(
-        'Transfer Letter Required',
-        'Please upload the letter from your parish priest before submitting.',
+        'Transfer requested',
+        `Your request has been sent to ${church?.name ?? 'your parish'}. Please give your parish priest's letter to the parish office.`,
       );
-      return;
+    } catch (err) {
+      Alert.alert("Couldn't send request", getApiErrorMessage(err));
     }
-    setLoading(true);
-    await new Promise<void>(r => setTimeout(r, 1200));
-    setLoading(false);
-    Alert.alert(
-      'Transfer Request Submitted',
-      'Your request has been submitted to the parish office. You will receive a notification once it is processed (5–7 working days).',
-      [{ text: 'OK', onPress: () => navigation.goBack() }],
+  };
+
+  const renderOpen = (t: TransferRequest) => {
+    const current = STEPS.findIndex(step => step.key.includes(t.status));
+    return (
+      <View style={styles.infoCard}>
+        <Text style={styles.infoTitle}>
+          <MaterialCommunityIcons name="swap-horizontal" size={14} /> Transfer to {churchName(t.destinationChurchId)}
+        </Text>
+        <Text style={styles.infoText}>{STATUS_TEXT[t.status]}</Text>
+        <View style={styles.steps}>
+          {STEPS.map((step, i) => (
+            <View key={step.label} style={styles.stepRow}>
+              <MaterialCommunityIcons
+                name={i < current ? 'check-circle' : i === current ? 'progress-clock' : 'circle-outline'}
+                size={18}
+                color={i <= current ? Colors.accent.gold : Colors.neutral.gray400}
+              />
+              <Text style={[styles.stepText, i === current && styles.stepTextActive]}>{step.label}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
     );
   };
 
@@ -97,26 +118,67 @@ export default function ChurchTransferScreen() {
         <View style={{ width: 32 }} />
       </View>
 
+      {isLoading || familyLoading ? (
+        <LoadingSpinner fullScreen />
+      ) : (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {open ? (
+            renderOpen(open)
+          ) : !isHead ? (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoTitle}><MaterialCommunityIcons name="information-outline" size={14} /> Transfers</Text>
+              <Text style={styles.infoText}>
+                Only the head of the family can request a transfer to another parish.
+              </Text>
+            </View>
+          ) : (
+          <>
           <View style={styles.infoCard}>
             <Text style={styles.infoTitle}><MaterialCommunityIcons name="information-outline" size={14} /> Transfer Information</Text>
             <Text style={styles.infoText}>
-              A church transfer allows your family to move their membership to another parish. This requires approval from both parishes.
+              A church transfer moves your family's membership to another parish. Your current parish releases your family first, then the new parish accepts it.
             </Text>
           </View>
 
           <View style={styles.fromCard}>
             <Text style={styles.fromLabel}>FROM (Current Parish)</Text>
-            <Text style={styles.fromChurch}><MaterialCommunityIcons name="church" size={13} /> St. Mary's Basilica, Chennai</Text>
+            <Text style={styles.fromChurch}><MaterialCommunityIcons name="church" size={13} /> {church?.name}</Text>
           </View>
 
-          <Input
-            label="To Church / Parish *"
-            value={toChurch}
-            onChangeText={setToChurch}
-            placeholder="e.g. Santhome Cathedral, Mylapore"
-          />
+          {destination ? (
+            <View style={styles.fromCard}>
+              <Text style={styles.fromLabel}>TO (New Parish)</Text>
+              <Text style={styles.fromChurch}><MaterialCommunityIcons name="church" size={13} /> {destination.name}</Text>
+              {!!destination.address?.city && <Text style={styles.infoText}>{destination.address.city}</Text>}
+              <TouchableOpacity onPress={() => setDestination(null)}>
+                <Text style={styles.letterReplace}>Change</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <Input
+                label="To Church / Parish *"
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search by parish name"
+              />
+              {results.isFetching && <Text style={styles.infoText}>Searching…</Text>}
+              {results.isError && <Text style={styles.errorText}>Couldn't search parishes. Check your connection.</Text>}
+              {!results.isFetching && search.trim().length >= 2 && results.isSuccess && !options.length && (
+                <Text style={styles.infoText}>No parish found with that name.</Text>
+              )}
+              {options.map(c => (
+                <TouchableOpacity key={c._id} style={styles.resultRow} onPress={() => setDestination(c)}>
+                  <MaterialCommunityIcons name="church" size={16} color={Colors.primary.navy} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resultName}>{c.name}</Text>
+                    {!!c.address?.city && <Text style={styles.infoText}>{c.address.city}</Text>}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
 
           <Text style={styles.label}>Reason for Transfer *</Text>
           <View style={styles.pillRow}>
@@ -138,60 +200,41 @@ export default function ChurchTransferScreen() {
             multiline
           />
 
-          {/* Parish priest's transfer letter */}
-          <Text style={styles.label}>Parish Priest's Letter *</Text>
-          <Text style={styles.helper}>
-            Your current parish priest must issue a letter addressed to the
-            receiving parish. Upload a clear photo or scan of that letter.
-          </Text>
-
-          {letter ? (
-            <View style={styles.letterCard}>
-              {!!letter.uri && (
-                <Image source={{ uri: letter.uri }} style={styles.letterThumb} />
-              )}
-              <View style={styles.letterInfo}>
-                <Text style={styles.letterName} numberOfLines={1}>
-                  {letter.fileName ?? 'Transfer letter'}
-                </Text>
-                <Text style={styles.letterMeta}>{fileSize(letter.fileSize)}</Text>
-                <TouchableOpacity onPress={pickLetter}>
-                  <Text style={styles.letterReplace}>Replace</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                onPress={() => setLetter(null)}
-                hitSlop={8}
-                style={styles.letterRemove}>
-                <MaterialCommunityIcons
-                  name="close"
-                  size={18}
-                  color={Colors.neutral.gray500}
-                />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity style={styles.uploadBox} onPress={pickLetter}>
-              <MaterialCommunityIcons
-                name="file-upload-outline"
-                size={30}
-                color={Colors.accent.goldDark}
-              />
-              <Text style={styles.uploadTitle}>Upload Letter</Text>
-              <Text style={styles.uploadHint}>Photo or scan · JPG / PNG</Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={styles.noteCard}>
-            <Text style={styles.noteText}>
-              All sacrament records will be transferred to the new parish. This process takes 5–7 working days.
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}><MaterialCommunityIcons name="file-document-outline" size={14} /> Parish Priest's Letter</Text>
+            <Text style={styles.infoText}>
+              Your current parish priest issues a letter for the new parish. Please hand it to the parish office — it isn't uploaded through the app.
             </Text>
           </View>
 
-          <Button title="Submit Transfer Request" onPress={handleSubmit} loading={loading} fullWidth size="lg" style={styles.btn} />
+          <Button title="Submit Transfer Request" onPress={handleSubmit} loading={request.isPending} fullWidth size="lg" style={styles.btn} />
+          </>
+          )}
+
+          {past.length > 0 && (
+            <>
+              <Text style={styles.label}>Previous Requests</Text>
+              {past.map(t => (
+                <View key={t._id} style={styles.resultRow}>
+                  <MaterialCommunityIcons
+                    name={t.status === 'completed' ? 'check-circle-outline' : 'close-circle-outline'}
+                    size={18}
+                    color={t.status === 'completed' ? Colors.semantic.success : Colors.semantic.error}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resultName}>{churchName(t.destinationChurchId)}</Text>
+                    <Text style={styles.infoText}>
+                      {STATUS_TEXT[t.status]}{t.rejectionReason ? ` — ${t.rejectionReason}` : ''}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
           <View style={{ height: 32 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
@@ -306,4 +349,21 @@ const styles = StyleSheet.create({
   },
   noteText: { fontSize: 13, color: Colors.neutral.gray600, lineHeight: 20 },
   btn: { marginTop: Spacing.sm },
+  steps: { marginTop: Spacing.md, gap: Spacing.sm },
+  stepRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  stepText: { fontSize: 13, color: Colors.neutral.gray500 },
+  stepTextActive: { color: Colors.primary.navy, fontWeight: '700' },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.neutral.white,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.neutral.gray200,
+  },
+  resultName: { fontSize: 14, fontWeight: '600', color: Colors.primary.navy },
+  errorText: { fontSize: 13, color: Colors.semantic.error, marginBottom: Spacing.sm },
 });

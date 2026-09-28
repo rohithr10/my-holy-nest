@@ -12,16 +12,47 @@ import type { DonationStackParamList } from '../../navigation/types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useDonationHistory, OFFERING_LABEL, METHOD_LABEL, inr } from '../../hooks/useDonations';
 
 type Props = NativeStackScreenProps<DonationStackParamList, typeof Routes.DonationReceipt>;
 
 export default function DonationReceiptScreen({ navigation, route }: Props) {
-  const { donationId, amount, type } = route.params;
-  const date = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  const { donationId } = route.params;
+  const church = useAppSelector(selectChurch);
+  const { data, isLoading, isError, refetch } = useDonationHistory();
+  const donation = data?.find(d => d._id === donationId);
+
+  if (isLoading) return <LoadingSpinner fullScreen />;
+  if (!donation || donation.status !== 'completed') {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+        <TopSafeArea color={Colors.neutral.warmWhite} />
+        <EmptyState
+          icon="receipt"
+          title={isError ? "Couldn't load this receipt" : 'No receipt for this offering'}
+          subtitle={isError ? 'Check your connection and try again.' : 'Receipts are issued once an offering is received.'}
+          actionLabel={isError ? 'Try again' : 'Back'}
+          onAction={isError ? () => refetch() : () => navigation.goBack()}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  const date = new Date(donation.processedAt ?? donation.createdAt).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+  const type = OFFERING_LABEL[donation.type] ?? donation.type;
+  const receiptNo = donation.receiptNumber ?? '—';
 
   const shareReceipt = async () => {
     await Share.share({
-      message: `My Holy Nest Donation Receipt\n\nReceipt #: ${donationId}\nDate: ${date}\nType: ${type}\nAmount: ₹${amount}\n\nThank you for your generous offering to St. Mary's Basilica.\n\nGod bless you!`,
+      message: `My Holy Nest Donation Receipt\n\nReceipt #: ${receiptNo}\nDate: ${date}\nType: ${type}\nAmount: ${inr(donation.amount)}\n\nThank you for your offering to ${church?.name ?? 'the parish'}.`,
     });
   };
 
@@ -43,18 +74,19 @@ export default function DonationReceiptScreen({ navigation, route }: Props) {
         {/* Receipt Card */}
         <View style={styles.receiptCard}>
           <View style={styles.receiptHeader}>
-            <Text style={styles.receiptChurch}><MaterialCommunityIcons name="church" size={13} /> St. Mary's Basilica</Text>
+            <Text style={styles.receiptChurch}><MaterialCommunityIcons name="church" size={13} /> {church?.name}</Text>
             <Text style={styles.receiptDate}>{date}</Text>
           </View>
 
           <View style={styles.divider} />
 
           {[
-            { label: 'Receipt No.', value: donationId },
+            { label: 'Receipt No.', value: receiptNo },
             { label: 'Offering Type', value: type },
-            { label: 'Amount', value: `₹${amount?.toLocaleString('en-IN')}` },
-            { label: 'Payment Method', value: 'UPI' },
-            { label: 'Status', value: 'Completed' },
+            ...(donation.intention ? [{ label: 'Intention', value: donation.intention }] : []),
+            { label: 'Amount', value: inr(donation.amount) },
+            { label: 'Payment Method', value: METHOD_LABEL[donation.method ?? 'online'] },
+            { label: 'Status', value: 'Received' },
           ].map((row, i) => (
             <View key={i} style={styles.receiptRow}>
               <Text style={styles.receiptLabel}>{row.label}</Text>
@@ -66,7 +98,7 @@ export default function DonationReceiptScreen({ navigation, route }: Props) {
 
           <View style={styles.divider} />
           <Text style={styles.taxNote}>
-            This receipt is valid for income tax 80G deduction purposes.
+            For a tax-deduction receipt, please ask the parish office.
           </Text>
         </View>
 

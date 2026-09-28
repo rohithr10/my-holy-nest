@@ -9,9 +9,7 @@ import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import Button from '../../components/common/Button/Button';
 import LanguageToggle from '../../components/common/LanguageToggle/LanguageToggle';
-import { useAppDispatch } from '../../hooks/useAppDispatch';
-import { addLocalNotification } from '../../store/slices/notification.slice';
-import { buildLocalNotification } from '../../hooks/useNotifications';
+import { Config } from '../../constants/config';
 import type { AppLanguage } from '../../i18n';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,58 +32,25 @@ function formatDate(date: Date, lang: AppLanguage): string {
 
 export default function SubscriptionScreen() {
   const navigation = useNavigation<any>();
-  const dispatch = useAppDispatch();
   const { t, i18n } = useTranslation();
   const lang = (i18n.language as AppLanguage) ?? 'en';
 
   const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const parsedAmount = parseInt(amount || '0', 10);
   const isValid = parsedAmount >= MIN_AMOUNT;
   const nextDebit = useMemo(() => firstDebitDate(), []);
 
-  const handleSubscribe = async () => {
+  // Recurring giving needs Razorpay subscriptions (and a backend to track
+  // them), neither of which exists yet — so nothing is set up or charged here.
+  const handleSubscribe = () => {
     if (!isValid) {
-      Alert.alert(
-        t('donation.invalid_amount_title'),
-        t('donation.invalid_amount'),
-      );
+      Alert.alert(t('donation.invalid_amount_title'), t('donation.invalid_amount'));
       return;
     }
-    setLoading(true);
-    await new Promise<void>(r => setTimeout(r, 1200));
-    setLoading(false);
-
-    const now = new Date();
-    const reference = `SUB${now.getTime().toString().slice(-8)}`;
-    const amountLabel = parsedAmount.toLocaleString('en-IN');
-    const nextDebitLabel = formatDate(nextDebit, lang);
-
-    // The receipt lands in the user's notifications with the full terms,
-    // including when the money will actually be taken.
-    dispatch(
-      addLocalNotification(
-        buildLocalNotification({
-          title: t('donation.receipt_title'),
-          body: t('donation.receipt_body', {
-            amount: amountLabel,
-            startDate: formatDate(now, lang),
-            reference,
-            nextDebit: nextDebitLabel,
-          }),
-          type: 'donation',
-        }),
-      ),
-    );
-
     Alert.alert(
-      t('donation.subscription_active'),
-      t('donation.subscription_active_body', {
-        amount: amountLabel,
-        date: nextDebitLabel,
-      }),
-      [{ text: 'OK', onPress: () => navigation.goBack() }],
+      'Monthly giving is not available yet',
+      'Please arrange a monthly offering with the parish office for now. Offerings recorded there appear in your giving history.',
     );
   };
 
@@ -162,13 +127,14 @@ export default function SubscriptionScreen() {
 
           <Button
             title={
-              isValid
-                ? `${t('donation.start_subscription')} — ₹${parsedAmount.toLocaleString('en-IN')}`
-                : t('donation.start_subscription')
+              !Config.ONLINE_GIVING_ENABLED
+                ? 'Monthly giving coming soon'
+                : isValid
+                  ? `${t('donation.start_subscription')} — ₹${parsedAmount.toLocaleString('en-IN')}`
+                  : t('donation.start_subscription')
             }
             onPress={handleSubscribe}
-            loading={loading}
-            disabled={!isValid}
+            disabled={!Config.ONLINE_GIVING_ENABLED || !isValid}
             fullWidth
             size="lg"
             style={styles.cta}

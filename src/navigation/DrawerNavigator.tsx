@@ -4,8 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  Image,
 } from "react-native";
 import {
   createDrawerNavigator,
@@ -14,7 +12,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../constants/colors";
 import { Spacing, Radius } from "../constants/spacing";
-import { Typography } from "../constants/typography";
 import { Routes } from "../constants/routes";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useTranslation } from "react-i18next";

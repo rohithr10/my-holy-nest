@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { notificationApi, DUMMY_NOTIFICATIONS } from '../api/notification.api';
+import { notificationApi } from '../api/notification.api';
 import { useAppDispatch, useAppSelector } from './useAppDispatch';
 import {
   markNotificationRead,
@@ -8,37 +8,34 @@ import {
   selectLocalNotifications,
   selectReadNotificationIds,
 } from '../store/slices/notification.slice';
+import { selectUser } from '../store/slices/auth.slice';
 import type { AppNotification } from '../types';
 
 /**
- * Loads notifications from the API and exposes read-state helpers.
+ * Loads the user's notifications from the API and exposes read-state helpers.
  *
- * If the `/notifications` endpoint isn't available yet, it transparently
- * falls back to DUMMY_NOTIFICATIONS so the screen still renders. Read-state
- * lives in the store (not in this hook) so every consumer — the Home bell
- * badge and the Notifications screen — sees the same counts; the matching API
- * call is fired best-effort and ignored on failure.
+ * Read-state is kept in the store as well as on the server, so the Home bell
+ * badge and the Notifications screen update together the moment something is
+ * opened; the matching API call is fired best-effort.
  */
 export function useNotifications() {
   const dispatch = useAppDispatch();
   const readIds = useAppSelector(selectReadNotificationIds);
   const localNotifications = useAppSelector(selectLocalNotifications);
 
+  const user = useAppSelector(selectUser);
   const query = useQuery({
-    queryKey: ['notifications'],
+    queryKey: ['notifications', user?._id],
+    enabled: !!user,
     queryFn: async (): Promise<AppNotification[]> => {
       const res = await notificationApi.getNotifications();
       return res.data.data;
     },
-    retry: false,
-    // Render dummy data instantly while the real request runs, so the screen
-    // never shows a blank spinner (e.g. during a cold backend start).
-    placeholderData: DUMMY_NOTIFICATIONS,
+    staleTime: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
-  const remote: AppNotification[] = query.isError
-    ? DUMMY_NOTIFICATIONS
-    : query.data ?? [];
+  const remote: AppNotification[] = useMemo(() => query.data ?? [], [query.data]);
 
   // App-generated notifications (subscription receipts, new announcements)
   // sit alongside the server's, newest first.
@@ -80,7 +77,7 @@ export function useNotifications() {
     isLoading: query.isLoading,
     isRefetching: query.isRefetching,
     refetch: query.refetch,
-    usingFallback: query.isError,
+    isError: query.isError,
     markAsRead,
     markAllAsRead,
   };

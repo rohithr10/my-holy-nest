@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, TextInput,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, TextInput, Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
@@ -9,28 +9,17 @@ import { Routes } from '../../constants/routes';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
-
-const RECORDED = [
-  { id: 'r1', videoId: 'abc1', title: 'Sunday Holy Mass', titleTA: 'ஞாயிறு திருப்பலி', date: 'Jun 1, 2026', duration: '1h 12m', views: '1.2K', priest: 'Fr. Thomas Raj', type: 'sunday' },
-  { id: 'r2', videoId: 'abc2', title: 'Feast of Sacred Heart', titleTA: 'திருவிழா திருப்பலி', date: 'Jun 4, 2026', duration: '58m', views: '873', priest: 'Bishop Joseph', type: 'feast' },
-  { id: 'r3', videoId: 'abc3', title: 'Novena Mass - Day 9', titleTA: 'நவநாள் திருப்பலி', date: 'May 28, 2026', duration: '45m', views: '640', priest: 'Fr. Anthony Samy', type: 'novena' },
-  { id: 'r4', videoId: 'abc4', title: 'Sunday Holy Mass', titleTA: 'ஞாயிறு திருப்பலி', date: 'May 25, 2026', duration: '1h 5m', views: '1.1K', priest: 'Fr. Thomas Raj', type: 'sunday' },
-  { id: 'r5', videoId: 'abc5', title: 'Wednesday Evening Mass', titleTA: 'புதன் மாலை திருப்பலி', date: 'May 22, 2026', duration: '42m', views: '410', priest: 'Fr. Joseph', type: 'regular' },
-  { id: 'r6', videoId: 'abc6', title: 'Corpus Christi Mass', titleTA: 'திரு உடல் திருவிழா', date: 'May 15, 2026', duration: '1h 20m', views: '2.1K', priest: 'Bishop Joseph', type: 'feast' },
-];
-
-const FILTER_TYPES = ['All', 'Sunday', 'Feast', 'Novena'];
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useRecordedMasses } from '../../hooks/useMass';
 
 export default function RecordedMassScreen() {
   const navigation = useNavigation<any>();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('All');
+  const { data, isLoading, isError, refetch, isRefetching } = useRecordedMasses();
 
-  const filtered = RECORDED.filter(v => {
-    const matchFilter = filter === 'All' || v.type === filter.toLowerCase();
-    const matchSearch = !search || v.title.toLowerCase().includes(search.toLowerCase());
-    return matchFilter && matchSearch;
-  });
+  const q = search.trim().toLowerCase();
+  const filtered = (data ?? []).filter(v => !q || v.title.toLowerCase().includes(q));
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -56,43 +45,48 @@ export default function RecordedMassScreen() {
         />
       </View>
 
-      <View style={styles.filterRow}>
-        {FILTER_TYPES.map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterPill, filter === f && styles.filterPillActive]}
-            onPress={() => setFilter(f)}>
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
       <FlatList
         data={filtered}
-        keyExtractor={i => i.id}
+        keyExtractor={i => i._id}
         contentContainerStyle={styles.list}
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="video-off-outline"
+            title={isError ? "Couldn't load recordings" : q ? 'No recordings match your search' : 'No recorded Masses yet'}
+            actionLabel={isError ? 'Try again' : undefined}
+            onAction={isError ? () => refetch() : undefined}
+          />
+        }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.card}
-            onPress={() => navigation.navigate(Routes.LiveMass, { videoId: item.videoId, title: item.title })}>
+            onPress={() => navigation.navigate(Routes.LiveMass, { videoId: item.youtubeVideoId, title: item.title })}>
             <View style={styles.thumbnail}>
+              <Image
+                source={{ uri: item.thumbnailUrl ?? `https://i.ytimg.com/vi/${item.youtubeVideoId}/hqdefault.jpg` }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
               <MaterialCommunityIcons name="play" style={styles.playIcon} />
-              <View style={styles.durationBadge}>
-                <Text style={styles.durationText}>{item.duration}</Text>
-              </View>
             </View>
             <View style={styles.cardInfo}>
               <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.cardTitleTA}>{item.titleTA}</Text>
-              <Text style={styles.cardMeta}>{item.priest}</Text>
               <View style={styles.cardFooter}>
-                <Text style={styles.cardDate}><MaterialCommunityIcons name="calendar-outline" size={13} /> {item.date}</Text>
-                <Text style={styles.cardViews}><MaterialCommunityIcons name="eye-outline" size={13} /> {item.views}</Text>
+                <Text style={styles.cardDate}>
+                  <MaterialCommunityIcons name="calendar-outline" size={13} />{' '}
+                  {new Date(item.scheduledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
               </View>
             </View>
           </TouchableOpacity>
         )}
       />
+      )}
     </SafeAreaView>
   );
 }

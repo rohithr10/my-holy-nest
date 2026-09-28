@@ -18,7 +18,6 @@ import { Routes } from "../../constants/routes";
 import {
   NT_BOOK_IDS,
   DEUTEROCANONICAL_BOOKS,
-  translationFor,
 } from "../../constants/bible";
 import { useBibleBooks } from "../../hooks/useBible";
 import { useDailyMeta, useReadingTexts } from "../../hooks/useDailyReadings";

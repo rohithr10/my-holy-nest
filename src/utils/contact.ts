@@ -1,17 +1,6 @@
 import { Alert, Linking, Platform } from 'react-native';
 import type { Address, Church } from '../types';
 
-/**
- * Parish contact details used until a church record is loaded from the API.
- * Mirrors what the Contact screen shows.
- */
-export const PARISH_FALLBACK = {
-  name: "St. Mary's Basilica",
-  phone: '+914425341234',
-  email: 'office@stmarysbasilica.com',
-  address: "St. Mary's Basilica, George Town, Chennai 600001",
-};
-
 async function open(url: string, failureMessage: string): Promise<void> {
   try {
     await Linking.openURL(url);
@@ -25,13 +14,24 @@ function normalizePhone(phone: string): string {
   return phone.replace(/[^\d+]/g, '');
 }
 
+/**
+ * Contact actions use only the parish's own record. When a detail is missing
+ * we say so — never fall back to another parish's number or address.
+ */
 export function callParish(phone?: string): void {
-  const number = normalizePhone(phone || PARISH_FALLBACK.phone);
-  void open(`tel:${number}`, 'No phone app is available on this device.');
+  if (!phone) {
+    Alert.alert('No phone number', "Your parish hasn't added a phone number yet.");
+    return;
+  }
+  void open(`tel:${normalizePhone(phone)}`, 'No phone app is available on this device.');
 }
 
 export function emailParish(email?: string, subject?: string): void {
-  const address = email || PARISH_FALLBACK.email;
+  if (!email) {
+    Alert.alert('No email address', "Your parish hasn't added an email address yet.");
+    return;
+  }
+  const address = email;
   const query = subject ? `?subject=${encodeURIComponent(subject)}` : '';
   void open(
     `mailto:${address}${query}`,
@@ -41,7 +41,7 @@ export function emailParish(email?: string, subject?: string): void {
 
 /** Formats a church address into a single line for maps/search. */
 export function formatAddress(address?: Address): string {
-  if (!address) return PARISH_FALLBACK.address;
+  if (!address) return '';
   return [address.street, address.area, address.city, address.state, address.pincode]
     .filter(Boolean)
     .join(', ');
@@ -52,8 +52,12 @@ export function formatAddress(address?: Address): string {
  * record has them, otherwise falls back to a text search on the address.
  */
 export function openDirections(church?: Church | null): void {
+  if (!church?.address && !church?.name) {
+    Alert.alert('No address', "Your parish hasn't added its address yet.");
+    return;
+  }
   const coords = church?.address?.coordinates;
-  const label = church?.name ?? PARISH_FALLBACK.name;
+  const label = church?.name ?? '';
   const query = coords
     ? `${coords.lat},${coords.lng}`
     : formatAddress(church?.address);

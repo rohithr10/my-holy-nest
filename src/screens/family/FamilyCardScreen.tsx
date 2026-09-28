@@ -12,27 +12,41 @@ import { selectUser, selectChurch } from '../../store/slices/auth.slice';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useQuery } from '@tanstack/react-query';
+import { churchApi } from '../../api/church.api';
+import { useMyFamily, fullName } from '../../hooks/useFamily';
 
 export default function FamilyCardScreen() {
   const navigation = useNavigation<any>();
   const user = useAppSelector(selectUser);
   const church = useAppSelector(selectChurch);
+  const { family, memberCount, isLoading, isError, refetch, isRefetching } = useMyFamily();
 
-  const family = {
-    id: 'FAM-2024-0142',
-    name: `${user?.profile.lastName ?? 'Thomas'} Family`,
-    headName: `${user?.profile.firstName ?? 'Thomas'} ${user?.profile.lastName ?? 'Raj'}`,
-    address: '14, Velankanni Nagar, Mylapore',
-    city: 'Chennai — 600 004',
-    phone: user?.phone ?? '+91 98765 43210',
-    memberCount: 4,
-    since: '1998',
-    status: 'Active',
-  };
+  // The card shows the diocese by name; churches only carry its id.
+  const { data: dioceses } = useQuery({
+    queryKey: ['dioceses'],
+    queryFn: async () => (await churchApi.getDioceses()).data.data,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+  const dioceseName = dioceses?.find(d => d._id === church?.dioceseId)?.name;
+
+  if (isLoading) return <LoadingSpinner fullScreen label="Loading your family card…" />;
+
+  const head = family?.members.find(m => m.relation === 'head');
+  const headName = fullName(head) || fullName(user?.profile);
+  const address = family
+    ? [family.address.street, family.address.area, family.address.city].filter(Boolean).join(', ') +
+      (family.address.pincode ? ` — ${family.address.pincode}` : '')
+    : '';
+  const since = family ? new Date(family.registeredAt).getFullYear() : undefined;
+  const status = family?.isActive === false ? 'Inactive' : 'Active';
 
   const shareCard = async () => {
+    if (!family) return;
     await Share.share({
-      message: `My Holy Nest Family ID: ${family.id}\n${family.name}\n${church?.name ?? 'St. Mary\'s Basilica'}\n\nDownload My Holy Nest for more.`,
+      message: `My Holy Nest family card ${family.cardNumber}\n${family.familyName}\n${church?.name ?? ''}`,
     });
   };
 
@@ -46,20 +60,33 @@ export default function FamilyCardScreen() {
           <MaterialCommunityIcons name="arrow-left" style={styles.backIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Family Card</Text>
-        <TouchableOpacity onPress={shareCard}>
+        <TouchableOpacity onPress={shareCard} disabled={!family}>
           <MaterialCommunityIcons name="arrow-up" style={styles.shareIcon} />
         </TouchableOpacity>
       </View>
 
+      {!family ? (
+        <EmptyState
+          icon="card-account-details-outline"
+          title={isError ? "Couldn't load your family card" : 'No family card yet'}
+          subtitle={
+            isError
+              ? 'Check your connection and try again.'
+              : 'Your account is not linked to a family card. Please contact the parish office.'
+          }
+          actionLabel={isError ? (isRefetching ? 'Retrying…' : 'Try again') : undefined}
+          onAction={isError ? () => refetch() : undefined}
+        />
+      ) : (
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Physical-style Card */}
         <View style={styles.card}>
           {/* Card Header */}
           <View style={styles.cardHeader}>
-            <View>
-              <Text style={styles.churchNameCard}>{church?.name ?? 'St. Mary\'s Basilica'}</Text>
-              <Text style={styles.churchTA}>{church?.nameTA ?? 'செயின்ட் மேரீஸ் பசிலிகா'}</Text>
-              <Text style={styles.diocese}>Archdiocese of Madras-Mylapore</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.churchNameCard}>{church?.name}</Text>
+              {!!church?.nameTA && <Text style={styles.churchTA}>{church.nameTA}</Text>}
+              {!!dioceseName && <Text style={styles.diocese}>{dioceseName}</Text>}
             </View>
             <MaterialCommunityIcons name="cross" style={styles.crossIcon} />
           </View>
@@ -69,12 +96,12 @@ export default function FamilyCardScreen() {
           {/* Family Info */}
           <View style={styles.cardBody}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{family.name[0]}</Text>
+              <Text style={styles.avatarText}>{family.familyName[0]?.toUpperCase()}</Text>
             </View>
             <View style={styles.familyInfo}>
-              <Text style={styles.familyName}>{family.name}</Text>
-              <Text style={styles.headName}>Head: {family.headName}</Text>
-              <Text style={styles.members}><MaterialCommunityIcons name="account-group-outline" size={13} /> {family.memberCount} Members</Text>
+              <Text style={styles.familyName}>{family.familyName}</Text>
+              {!!headName && <Text style={styles.headName}>Head: {headName}</Text>}
+              <Text style={styles.members}><MaterialCommunityIcons name="account-group-outline" size={13} /> {memberCount} {memberCount === 1 ? 'Member' : 'Members'}</Text>
             </View>
           </View>
 
@@ -82,16 +109,20 @@ export default function FamilyCardScreen() {
           <View style={styles.cardDetails}>
             <View style={styles.detailRow}>
               <MaterialCommunityIcons name="map-marker-outline" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{family.address}, {family.city}</Text>
+              <Text style={styles.detailText}>{address}</Text>
             </View>
-            <View style={styles.detailRow}>
-              <MaterialCommunityIcons name="phone-outline" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{family.phone}</Text>
-            </View>
-            <View style={styles.detailRow}>
-              <MaterialCommunityIcons name="calendar-outline" style={styles.detailIcon} />
-              <Text style={styles.detailText}>Member since {family.since}</Text>
-            </View>
+            {!!user?.phone && (
+              <View style={styles.detailRow}>
+                <MaterialCommunityIcons name="phone-outline" style={styles.detailIcon} />
+                <Text style={styles.detailText}>+91 {user.phone}</Text>
+              </View>
+            )}
+            {!!since && (
+              <View style={styles.detailRow}>
+                <MaterialCommunityIcons name="calendar-outline" style={styles.detailIcon} />
+                <Text style={styles.detailText}>Registered {since}</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.cardDivider} />
@@ -99,11 +130,11 @@ export default function FamilyCardScreen() {
           {/* Card Footer */}
           <View style={styles.cardFooter}>
             <View>
-              <Text style={styles.cardIdLabel}>FAMILY ID</Text>
-              <Text style={styles.cardId}>{family.id}</Text>
+              <Text style={styles.cardIdLabel}>FAMILY CARD NO.</Text>
+              <Text style={styles.cardId}>{family.cardNumber}</Text>
             </View>
-            <View style={[styles.statusBadge, family.status === 'Active' ? styles.statusActive : styles.statusInactive]}>
-              <Text style={styles.statusText}>{family.status}</Text>
+            <View style={[styles.statusBadge, status === 'Active' ? styles.statusActive : styles.statusInactive]}>
+              <Text style={styles.statusText}>{status}</Text>
             </View>
           </View>
         </View>
@@ -113,7 +144,7 @@ export default function FamilyCardScreen() {
           <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate(Routes.Members)}>
             <MaterialCommunityIcons name="account-group-outline" style={styles.actionIcon} />
             <Text style={styles.actionLabel}>Members</Text>
-            <Text style={styles.actionCount}>{family.memberCount}</Text>
+            <Text style={styles.actionCount}>{memberCount}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate(Routes.Certificates)}>
             <MaterialCommunityIcons name="certificate-outline" style={styles.actionIcon} />
@@ -131,6 +162,7 @@ export default function FamilyCardScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

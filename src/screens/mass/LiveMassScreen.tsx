@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, StatusBar,
-  TouchableOpacity, ScrollView, Dimensions, Share, Alert,
+  TouchableOpacity, ScrollView, Dimensions, Share, Alert, Linking,
 } from 'react-native';
 import WebView from 'react-native-webview';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -12,22 +12,23 @@ import { Routes } from '../../constants/routes';
 import type { MassStackParamList } from '../../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import { useAppSelector } from '../../hooks/useAppDispatch';
+import { selectChurch } from '../../store/slices/auth.slice';
+import { useLiveStream } from '../../hooks/useMass';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VIDEO_HEIGHT = (SCREEN_WIDTH * 9) / 16;
 
 type Props = NativeStackScreenProps<MassStackParamList, typeof Routes.LiveMass>;
 
-const COMMENTS = [
-  { user: 'Mary T.', text: 'Praise the Lord!', time: '2m ago' },
-  { user: 'Joseph R.', text: 'Beautiful homily, Father', time: '5m ago' },
-  { user: 'Anna P.', text: 'Thank you Jesus', time: '7m ago' },
-  { user: 'Peter S.', text: 'Watching from Dubai. God bless!', time: '10m ago' },
-];
-
 export default function LiveMassScreen({ navigation, route }: Props) {
   const { videoId, title } = route.params;
   const [isLiked, setIsLiked] = useState(false);
+  const church = useAppSelector(selectChurch);
+  const { data: current } = useLiveStream();
+  // The route only carries the video; status and start time come from the API.
+  const stream = current?.youtubeVideoId === videoId ? current : null;
+  const isLive = stream ? stream.status === 'live' : true;
 
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -35,14 +36,14 @@ export default function LiveMassScreen({ navigation, route }: Props) {
   const shareStream = useCallback(async () => {
     try {
       await Share.share({
-        message: `${title} — live now from St. Mary's Basilica.\nWatch: ${watchUrl}\n\n— Shared via My Holy Nest`,
+        message: `${title}${isLive ? ' — live now' : ''} from ${church?.name ?? 'our parish'}.\nWatch: ${watchUrl}\n\n— Shared via My Holy Nest`,
         url: watchUrl,
         title,
       });
     } catch {
       Alert.alert('Share failed', "The live stream couldn't be shared right now.");
     }
-  }, [title, watchUrl]);
+  }, [title, watchUrl, isLive, church?.name]);
 
   // The Give tab is a sibling of the Mass stack, so the offering screen is
   // reached through the parent tab navigator.
@@ -51,6 +52,7 @@ export default function LiveMassScreen({ navigation, route }: Props) {
     const target = parent ?? navigation;
     (target as any).navigate(Routes.GiveTab, {
       screen: Routes.MakeOffering,
+      initial: false,
       params: { offeringType: 'Mass Offering' },
     });
   }, [navigation]);
@@ -66,10 +68,12 @@ export default function LiveMassScreen({ navigation, route }: Props) {
           <MaterialCommunityIcons name="arrow-left" size={24} color={Colors.neutral.white} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE</Text>
-          </View>
+          {isLive && (
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+          )}
           <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
         </View>
         <TouchableOpacity style={styles.shareBtn} onPress={shareStream} hitSlop={8}>
@@ -92,17 +96,22 @@ export default function LiveMassScreen({ navigation, route }: Props) {
         {/* Mass Info */}
         <View style={styles.infoCard}>
           <Text style={styles.massTitle}>{title}</Text>
-          <Text style={styles.massSubtitle}>St. Mary's Basilica · Sunday Holy Mass</Text>
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <MaterialCommunityIcons name="eye-outline" size={14} color={Colors.neutral.gray400} />
-              <Text style={styles.statText}>432 watching</Text>
+          <Text style={styles.massSubtitle}>{church?.name}</Text>
+          {stream && (
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.neutral.gray400} />
+                <Text style={styles.statText}>
+                  {stream.status === 'live' ? 'Started' : 'Starts'}{' '}
+                  {new Date(stream.scheduledAt).toLocaleString('en-IN', {
+                    weekday: 'short',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </Text>
+              </View>
             </View>
-            <View style={styles.statItem}>
-              <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.neutral.gray400} />
-              <Text style={styles.statText}>Started 45 min ago</Text>
-            </View>
-          </View>
+          )}
           <View style={styles.actionsRow}>
             <TouchableOpacity
               style={[styles.actionBtn, isLiked && styles.actionBtnActive]}
@@ -127,21 +136,12 @@ export default function LiveMassScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* Live Comments */}
+        {/* Live chat happens on YouTube; the app doesn't host one. */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Live Prayers</Text>
-          {COMMENTS.map((c, i) => (
-            <View key={i} style={styles.commentRow}>
-              <View style={styles.commentAvatar}>
-                <Text style={styles.commentAvatarText}>{c.user[0]}</Text>
-              </View>
-              <View style={styles.commentBubble}>
-                <Text style={styles.commentUser}>{c.user}</Text>
-                <Text style={styles.commentText}>{c.text}</Text>
-              </View>
-              <Text style={styles.commentTime}>{c.time}</Text>
-            </View>
-          ))}
+          <TouchableOpacity style={styles.actionBtn} onPress={() => Linking.openURL(watchUrl)}>
+            <MaterialCommunityIcons name="youtube" size={18} color={Colors.neutral.gray600} />
+            <Text style={styles.actionBtnText}>Open in YouTube for live chat</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ height: 32 }} />
       </ScrollView>

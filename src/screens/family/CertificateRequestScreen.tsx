@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView,
   StatusBar, TouchableOpacity, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import Input from '../../components/common/Input/Input';
@@ -11,39 +11,64 @@ import Button from '../../components/common/Button/Button';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import { Routes } from '../../constants/routes';
+import type { ProfileStackParamList } from '../../navigation/types';
+import { useMyFamily, useRequestCertificate, fullName } from '../../hooks/useFamily';
+import { getApiErrorMessage } from '../../api/client';
+import type { CertType } from '../../types';
 
-const CERT_TYPES = [
+const CERT_TYPES: { id: CertType; label: string; labelTA: string; icon: string }[] = [
   { id: 'baptism', label: 'Baptism', labelTA: 'ஞானஸ்நானம்', icon: 'water-outline' },
-  { id: 'confirmation', label: 'Confirmation', labelTA: 'திருதைலம்', icon: 'bird' },
+  { id: 'holy_communion', label: 'First Communion', labelTA: 'புதுநன்மை', icon: 'bread-slice-outline' },
+  { id: 'confirmation', label: 'Confirmation', labelTA: 'உறுதிப்பூசுதல்', icon: 'bird' },
   { id: 'marriage', label: 'Marriage', labelTA: 'திருமணம்', icon: 'ring' },
-  { id: 'death', label: 'Death', labelTA: 'மரண சான்று', icon: 'candle' },
+  { id: 'death', label: 'Death', labelTA: 'இறப்பு', icon: 'candle' },
+  { id: 'general', label: 'Other', labelTA: 'பிற', icon: 'file-document-outline' },
 ];
 
-const MEMBERS = ['Thomas Raj', 'Mary Raj', 'John Thomas', 'Priya Thomas'];
-const PURPOSES = ['Personal Records', 'Government', 'Marriage', 'Visa', 'Other'];
+const PURPOSES = ['Personal Records', 'Government', 'Marriage', 'Visa', 'School', 'Other'];
 
-export default function CertificateRequestScreen() {
-  const navigation = useNavigation<any>();
-  const [certType, setCertType] = useState('');
-  const [member, setMember] = useState('');
+type Props = NativeStackScreenProps<ProfileStackParamList, typeof Routes.CertificateRequest>;
+
+export default function CertificateRequestScreen({ navigation, route }: Props) {
+  const { family, isLoading: familyLoading } = useMyFamily();
+  const request = useRequestCertificate();
+  const preset = CERT_TYPES.find(c => c.id === route.params?.certType)?.id ?? '';
+  const [certType, setCertType] = useState<CertType | ''>(preset);
+  const [memberId, setMemberId] = useState('');
   const [purpose, setPurpose] = useState('');
   const [copies, setCopies] = useState('1');
   const [remarks, setRemarks] = useState('');
-  const [loading, setLoading] = useState(false);
+
+  const members = family?.members ?? [];
+  const member = members.find(m => m._id === memberId);
 
   const handleSubmit = async () => {
     if (!certType || !member || !purpose) {
-      Alert.alert('Missing Fields', 'Please fill all required fields.');
+      Alert.alert('Missing details', 'Choose the certificate, the family member and the purpose.');
       return;
     }
-    setLoading(true);
-    await new Promise<void>(r => setTimeout(r, 1200));
-    setLoading(false);
-    Alert.alert(
-      'Request Submitted',
-      'Your certificate request has been submitted. You will be notified once it is approved (usually within 2–3 working days).',
-      [{ text: 'OK', onPress: () => navigation.goBack() }],
-    );
+    const n = Math.max(1, parseInt(copies, 10) || 1);
+    // The parish office reads one purpose line; copies and remarks go with it.
+    const fullPurpose = [purpose, `${n} ${n === 1 ? 'copy' : 'copies'}`, remarks.trim()]
+      .filter(Boolean)
+      .join(' · ');
+    try {
+      await request.mutateAsync({
+        type: certType,
+        memberId: member._id,
+        memberName: fullName(member),
+        familyId: family?._id,
+        purpose: fullPurpose,
+      });
+      Alert.alert(
+        'Request submitted',
+        'The parish office will review your request. You can follow its status under Certificates.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
+      );
+    } catch (err) {
+      Alert.alert("Couldn't submit request", getApiErrorMessage(err));
+    }
   };
 
   return (
@@ -76,12 +101,16 @@ export default function CertificateRequestScreen() {
 
           <Text style={styles.label}>For Member *</Text>
           <View style={styles.pillRow}>
-            {MEMBERS.map(m => (
+            {familyLoading && <Text style={styles.pillText}>Loading family members…</Text>}
+            {!familyLoading && !members.length && (
+              <Text style={styles.pillText}>No family card found. Please contact the parish office.</Text>
+            )}
+            {members.map(m => (
               <TouchableOpacity
-                key={m}
-                style={[styles.pill, member === m && styles.pillActive]}
-                onPress={() => setMember(m)}>
-                <Text style={[styles.pillText, member === m && styles.pillTextActive]}>{m}</Text>
+                key={m._id}
+                style={[styles.pill, memberId === m._id && styles.pillActive]}
+                onPress={() => setMemberId(m._id)}>
+                <Text style={[styles.pillText, memberId === m._id && styles.pillTextActive]}>{fullName(m)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -115,10 +144,10 @@ export default function CertificateRequestScreen() {
 
           <View style={styles.feeCard}>
             <Text style={styles.feeTitle}><MaterialCommunityIcons name="note-edit-outline" size={13} /> Certificate Fee</Text>
-            <Text style={styles.feeText}>₹50 per copy · Payable at the parish office upon collection</Text>
+            <Text style={styles.feeText}>Any certificate fee is paid at the parish office when you collect it</Text>
           </View>
 
-          <Button title="Submit Request" onPress={handleSubmit} loading={loading} fullWidth size="lg" style={styles.submitBtn} />
+          <Button title="Submit Request" onPress={handleSubmit} loading={request.isPending} fullWidth size="lg" style={styles.submitBtn} />
           <View style={{ height: 32 }} />
         </ScrollView>
       </KeyboardAvoidingView>

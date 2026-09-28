@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   StatusBar, TouchableOpacity, TextInput,
@@ -9,22 +9,20 @@ import { Spacing, Radius, Shadow } from '../../constants/spacing';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
-
-const FAMILIES = [
-  { id: 'f1', name: 'Thomas Family', head: 'Thomas Raj', phone: '+91 98765 43210', area: 'Mylapore', members: 4, status: 'active' },
-  { id: 'f2', name: 'Joseph Family', head: 'Joseph Anthony', phone: '+91 98765 11110', area: 'Triplicane', members: 5, status: 'active' },
-  { id: 'f3', name: 'Maria Family', head: 'Maria Selvam', phone: '+91 98765 22220', area: 'Royapuram', members: 3, status: 'active' },
-  { id: 'f4', name: 'Peter Family', head: 'Peter Raj', phone: '+91 98765 33330', area: 'Nungambakkam', members: 6, status: 'inactive' },
-  { id: 'f5', name: 'Paul Family', head: 'Paul Xavier', phone: '+91 98765 44440', area: 'Kodambakkam', members: 2, status: 'active' },
-];
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useAdminFamilies } from '../../hooks/useAdmin';
+import { fullName } from '../../hooks/useFamily';
 
 export default function AdminFamiliesScreen() {
   const navigation = useNavigation<any>();
   const [search, setSearch] = useState('');
-
-  const filtered = FAMILIES.filter(f =>
-    !search || f.name.toLowerCase().includes(search.toLowerCase()) ||
-    f.head.toLowerCase().includes(search.toLowerCase()));
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  const { data, isLoading, isError, refetch, isRefetching } = useAdminFamilies(debounced);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -34,10 +32,8 @@ export default function AdminFamiliesScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" style={styles.backIcon} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Families ({FAMILIES.length})</Text>
-        <TouchableOpacity style={styles.exportBtn}>
-          <Text style={styles.exportText}>Export</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Families{data ? ` (${data.total})` : ''}</Text>
+        <View style={{ width: 32 }} />
       </View>
 
       <View style={styles.searchBar}>
@@ -46,32 +42,53 @@ export default function AdminFamiliesScreen() {
           style={styles.searchInput}
           value={search}
           onChangeText={setSearch}
-          placeholder="Search by name or head..."
+          placeholder="Search by family name or card number..."
           placeholderTextColor={Colors.neutral.gray400}
         />
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner fullScreen />
+      ) : (
       <FlatList
-        data={filtered}
-        keyExtractor={f => f.id}
+        data={data?.families ?? []}
+        keyExtractor={f => f._id}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card}>
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="account-group-outline"
+            title={isError ? "Couldn't load families" : debounced ? 'No family matches your search' : 'No families registered yet'}
+            actionLabel={isError ? 'Try again' : undefined}
+            onAction={isError ? () => refetch() : undefined}
+          />
+        }
+        renderItem={({ item }) => {
+          const head = item.members.find(m => m.relation === 'head');
+          const area = [item.address?.area, item.address?.city].filter(Boolean).join(', ');
+          return (
+          <View style={styles.card}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{item.name[0]}</Text>
+              <Text style={styles.avatarText}>{item.familyName[0]?.toUpperCase()}</Text>
             </View>
             <View style={styles.info}>
               <View style={styles.nameRow}>
-                <Text style={styles.familyName}>{item.name}</Text>
-                <View style={[styles.statusDot, item.status === 'active' ? styles.dotGreen : styles.dotGray]} />
+                <Text style={styles.familyName}>{item.familyName}</Text>
+                <View style={[styles.statusDot, item.isActive !== false ? styles.dotGreen : styles.dotGray]} />
               </View>
-              <Text style={styles.head}>{item.head}</Text>
-              <Text style={styles.meta}><MaterialCommunityIcons name="map-marker-outline" size={13} /> {item.area}  ·  <MaterialCommunityIcons name="account-group-outline" size={13} /> {item.members} members</Text>
-              <Text style={styles.phone}><MaterialCommunityIcons name="phone-outline" size={13} /> {item.phone}</Text>
+              {!!head && <Text style={styles.head}>{fullName(head)}</Text>}
+              <Text style={styles.meta}>
+                {!!area && <><MaterialCommunityIcons name="map-marker-outline" size={13} /> {area}  ·  </>}
+                <MaterialCommunityIcons name="account-group-outline" size={13} /> {item.members.length} members
+              </Text>
+              <Text style={styles.phone}>{item.cardNumber}</Text>
             </View>
-          </TouchableOpacity>
-        )}
+          </View>
+          );
+        }}
       />
+      )}
     </SafeAreaView>
   );
 }

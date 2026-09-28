@@ -7,9 +7,11 @@ export const bibleApi = {
 
   getBookmarks: () => apiClient.get<ApiResponse<Bookmark[]>>('/bible/bookmarks'),
 
+  /** Saves (or updates) the bookmark for a verse. */
   addBookmark: (verse: Omit<Bookmark, '_id' | 'userId' | 'createdAt'>) =>
     apiClient.post<ApiResponse<Bookmark>>('/bible/bookmarks', verse),
 
-  removeBookmark: (bookmarkId: string) =>
-    apiClient.delete(`/bible/bookmarks/${bookmarkId}`),
+  /** Removes a bookmark by its verse key (e.g. "JHN.3.16") or id. */
+  removeBookmark: (verseIdOrId: string) =>
+    apiClient.delete(`/bible/bookmarks/${encodeURIComponent(verseIdOrId)}`),
 };

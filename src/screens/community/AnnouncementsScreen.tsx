@@ -1,10 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, StatusBar, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, StatusBar, TouchableOpacity, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
-import { useAppSelector } from '../../hooks/useAppDispatch';
-import { selectAnnouncements } from '../../store/slices/church.slice';
+import { useAnnouncements } from '../../hooks/useAnnouncements';
 import { formatAnnouncementDate } from '../../constants/announcements';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,9 +11,9 @@ import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
 
 export default function AnnouncementsScreen() {
   const navigation = useNavigation<any>();
-  // Shared with Home and the Admin screen, so newly posted announcements
-  // appear here immediately.
-  const announcements = useAppSelector(selectAnnouncements);
+  // Loads from the API and shares the result with Home and the Admin screen,
+  // so anything published from the parish dashboard shows up here.
+  const { announcements, isLoading, isRefetching, refetch } = useAnnouncements();
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -29,9 +28,18 @@ export default function AnnouncementsScreen() {
         data={announcements}
         keyExtractor={a => a._id}
         contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={Colors.primary.navy}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>No announcements yet.</Text>
+            <Text style={styles.emptyText}>
+              {isLoading ? 'Loading announcements…' : 'No announcements yet.'}
+            </Text>
           </View>
         }
         renderItem={({ item }) => (

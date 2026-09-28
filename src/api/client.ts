@@ -2,7 +2,9 @@ import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } fro
 import { Config } from '../constants/config';
 import { store } from '../store';
 import { logout, selectToken, setTokens } from '../store/slices/auth.slice';
+import { setBookmarks } from '../store/slices/bible.slice';
 import { clearSession } from '../utils/session';
+import { queryClient } from './queryClient';
 
 const apiClient = axios.create({
   baseURL: Config.API_BASE_URL,
@@ -46,6 +48,8 @@ async function performRefresh(): Promise<string | null> {
 
 async function forceLogout() {
   store.dispatch(logout());
+  store.dispatch(setBookmarks([]));
+  queryClient.clear();
   await clearSession();
 }
 

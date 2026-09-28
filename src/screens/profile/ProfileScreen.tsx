@@ -12,12 +12,10 @@ import { useNavigation } from "@react-navigation/native";
 import { Colors } from "../../constants/colors";
 import { Spacing, Radius, Shadow } from "../../constants/spacing";
 import { Routes } from "../../constants/routes";
-import { useAppSelector, useAppDispatch } from "../../hooks/useAppDispatch";
-import {
-  selectUser,
-  selectChurch,
-  logout,
-} from "../../store/slices/auth.slice";
+import { useAppSelector } from "../../hooks/useAppDispatch";
+import { selectUser, selectChurch } from "../../store/slices/auth.slice";
+import { useMyFamily, useMyCertificates, fullName, initials } from "../../hooks/useFamily";
+import { signOut } from "../../utils/logout";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import TopSafeArea from "../../components/common/TopSafeArea/TopSafeArea";
@@ -44,16 +42,22 @@ const MENU_ITEMS = [
 
 export default function ProfileScreen() {
   const navigation = useNavigation<any>();
-  const dispatch = useAppDispatch();
   const user = useAppSelector(selectUser);
   const church = useAppSelector(selectChurch);
 
-  const fullName = `${user?.profile.firstName ?? "Thomas"} ${
-    user?.profile.lastName ?? "Raj"
-  }`;
-  const initials = `${(user?.profile.firstName ?? "T")[0]}${
-    (user?.profile.lastName ?? "R")[0]
-  }`;
+  const { family, memberCount } = useMyFamily();
+  const { data: certificates } = useMyCertificates();
+
+  const name = fullName(user?.profile);
+  const avatarText = initials(user?.profile);
+  const address = family
+    ? [family.address.street, family.address.area, family.address.city]
+        .filter(Boolean)
+        .join(", ") + (family.address.pincode ? ` — ${family.address.pincode}` : "")
+    : undefined;
+  const roleLabel = user?.role
+    ? user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : "";
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -61,7 +65,7 @@ export default function ProfileScreen() {
       {
         text: "Logout",
         style: "destructive",
-        onPress: () => dispatch(logout()),
+        onPress: () => void signOut(),
       },
     ]);
   };
@@ -82,21 +86,19 @@ export default function ProfileScreen() {
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials}</Text>
+            <Text style={styles.avatarText}>{avatarText}</Text>
           </View>
-          <Text style={styles.name}>{fullName}</Text>
-          <Text style={styles.role}>
-            {user?.role?.replace("_", " ") ?? "Family Head"}
-          </Text>
+          <Text style={styles.name}>{name}</Text>
+          <Text style={styles.role}>{roleLabel}</Text>
           <View style={styles.churchPill}>
             <Text style={styles.churchPillText}>
               <MaterialCommunityIcons name="church" size={13} />{" "}
-              {church?.name ?? "St. Mary's Basilica"}
+              {church?.name}
             </Text>
           </View>
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>4</Text>
+              <Text style={styles.statValue}>{family ? memberCount : "–"}</Text>
               <Text style={styles.statLabel}>Members</Text>
             </View>
             <View style={styles.statDivider} />
@@ -106,7 +108,7 @@ export default function ProfileScreen() {
             </View> */}
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>3</Text>
+              <Text style={styles.statValue}>{certificates ? certificates.length : "–"}</Text>
               <Text style={styles.statLabel}>Certificates</Text>
             </View>
           </View>
@@ -120,17 +122,17 @@ export default function ProfileScreen() {
               {
                 icon: "phone-outline",
                 label: "Mobile",
-                value: user?.phone ?? "+91 98765 43210",
+                value: user?.phone ? `+91 ${user.phone}` : "—",
               },
               {
                 icon: "email-outline",
                 label: "Email",
-                value: user?.email ?? "thomas@email.com",
+                value: user?.email || "Not added — set it in Settings",
               },
               {
                 icon: "map-marker-outline",
                 label: "Address",
-                value: "14, Velankanni Nagar, Mylapore, Chennai — 600 004",
+                value: address ?? "—",
               },
             ].map((item, i) => (
               <View

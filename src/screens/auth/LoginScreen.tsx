@@ -19,6 +19,7 @@ import Input from '../../components/common/Input/Input';
 import Button from '../../components/common/Button/Button';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import { setCredentials } from '../../store/slices/auth.slice';
+import type { AxiosError } from 'axios';
 import { authApi } from '../../api/auth.api';
 import { getApiErrorMessage } from '../../api/client';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -59,6 +60,12 @@ export default function LoginScreen({ navigation, route }: Props) {
       dispatch(setCredentials({ user, token, refreshToken }));
       // RootNavigator switches stacks automatically once authenticated.
     } catch (err) {
+      // Registered but never confirmed the number: the API has just sent a
+      // fresh code, so finish verification (which also signs the user in).
+      if ((err as AxiosError<{ code?: string }>)?.response?.data?.code === 'ACCOUNT_UNVERIFIED') {
+        navigation.navigate(Routes.OTPVerification, { phone, purpose: 'register' });
+        return;
+      }
       setErrors({ password: getApiErrorMessage(err, 'Invalid phone number or password') });
     } finally {
       setLoading(false);

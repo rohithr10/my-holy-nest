@@ -6,24 +6,52 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius, Shadow } from '../../constants/spacing';
-import Badge from '../../components/common/Badge/Badge';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useAdminDonations, useAdminStats, inrShort } from '../../hooks/useAdmin';
+import { OFFERING_LABEL, METHOD_LABEL } from '../../hooks/useDonations';
 
-const DONATIONS = [
-  { id: 'd1', family: 'Thomas Family', type: 'Sunday Offering', amount: 500, date: 'Jun 1, 2026', status: 'completed' },
-  { id: 'd2', family: 'Joseph Family', type: 'Church Maintenance', amount: 2000, date: 'Jun 2, 2026', status: 'completed' },
-  { id: 'd3', family: 'Maria Family', type: 'Candle Offering', amount: 200, date: 'Jun 3, 2026', status: 'completed' },
-  { id: 'd4', family: 'Peter Family', type: 'Poor Fund', amount: 1000, date: 'Jun 3, 2026', status: 'pending' },
-  { id: 'd5', family: 'Paul Family', type: 'Feast Fund', amount: 500, date: 'Jun 4, 2026', status: 'completed' },
-];
+type Period = 'today' | 'week' | 'month' | 'year';
 
-const TOTAL = DONATIONS.filter(d => d.status === 'completed').reduce((s, d) => s + d.amount, 0);
+function periodStart(p: Period): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  if (p === 'week') d.setDate(d.getDate() - 6);
+  if (p === 'month') d.setDate(1);
+  if (p === 'year') d.setMonth(0, 1);
+  return d;
+}
+
+type Row = NonNullable<ReturnType<typeof useAdminDonations>['data']>['donations'][number];
+
+function donor(d: Row): string {
+  if (d.isAnonymous) return 'Anonymous';
+  if (d.userId && typeof d.userId !== 'string') {
+    const n = [d.userId.profile?.firstName, d.userId.profile?.lastName].filter(Boolean).join(' ');
+    if (n) return n;
+  }
+  return d.donorName || 'Parishioner';
+}
 
 export default function AdminDonationsScreen() {
   const navigation = useNavigation<any>();
-  const [period, setPeriod] = useState('month');
+  const [period, setPeriod] = useState<Period>('month');
+  const { data, isLoading, isError, refetch, isRefetching } = useAdminDonations('completed');
+  const stats = useAdminStats();
+
+  const from = periodStart(period).getTime();
+  const rows = (data?.donations ?? []).filter(
+    d => new Date(d.processedAt ?? d.createdAt).getTime() >= from,
+  );
+  const total =
+    period === 'month' && stats.data
+      ? stats.data.stats.donationsThisMonth
+      : period === 'year' && stats.data
+        ? stats.data.stats.donationsYearToDate
+        : rows.reduce((sum, d) => sum + d.amount, 0);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -34,19 +62,20 @@ export default function AdminDonationsScreen() {
           <MaterialCommunityIcons name="arrow-left" style={styles.backIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Donations</Text>
-        <TouchableOpacity style={styles.exportBtn}>
-          <Text style={styles.exportText}>Export</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Total Received (This Month)</Text>
-        <Text style={styles.summaryAmount}>₹{TOTAL.toLocaleString('en-IN')}</Text>
-        <Text style={styles.summaryCount}>{DONATIONS.filter(d => d.status === 'completed').length} transactions</Text>
+        <Text style={styles.summaryLabel}>
+          Total Received ({period === 'today' ? 'Today' : period === 'week' ? 'Last 7 days' : period === 'month' ? 'This Month' : 'This Year'})
+        </Text>
+        <Text style={styles.summaryAmount}>₹{total.toLocaleString('en-IN')}</Text>
+        <Text style={styles.summaryCount}>
+          {rows.length} {rows.length === 1 ? 'offering' : 'offerings'}{rows.length >= 100 ? '+' : ''}
+        </Text>
       </View>
 
       <View style={styles.periodRow}>
-        {['today', 'week', 'month', 'year'].map(p => (
+        {(['today', 'week', 'month', 'year'] as Period[]).map(p => (
           <TouchableOpacity
             key={p}
             style={[styles.periodPill, period === p && styles.periodPillActive]}
@@ -58,28 +87,46 @@ export default function AdminDonationsScreen() {
         ))}
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
       <FlatList
-        data={DONATIONS}
-        keyExtractor={d => d.id}
+        data={rows}
+        keyExtractor={d => d._id}
         contentContainerStyle={styles.list}
+        onRefresh={() => {
+          refetch();
+          stats.refetch();
+        }}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="cash-multiple"
+            title={isError ? "Couldn't load donations" : 'No offerings in this period'}
+            actionLabel={isError ? 'Try again' : undefined}
+            onAction={isError ? () => refetch() : undefined}
+          />
+        }
         renderItem={({ item }) => (
           <View style={styles.row}>
             <View style={styles.amountCircle}>
-              <Text style={styles.amountText}>₹{item.amount >= 1000 ? `${item.amount / 1000}K` : item.amount}</Text>
+              <Text style={styles.amountText}>{inrShort(item.amount)}</Text>
             </View>
             <View style={styles.info}>
-              <Text style={styles.family}>{item.family}</Text>
-              <Text style={styles.type}>{item.type}</Text>
-              <Text style={styles.date}>{item.date}</Text>
+              <Text style={styles.family}>{donor(item)}</Text>
+              <Text style={styles.type}>
+                {OFFERING_LABEL[item.type] ?? item.type}
+                {item.method && item.method !== 'online' ? ` · ${METHOD_LABEL[item.method]}` : ''}
+              </Text>
+              <Text style={styles.date}>
+                {new Date(item.processedAt ?? item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {item.receiptNumber ? ` · ${item.receiptNumber}` : ''}
+              </Text>
             </View>
-            <Badge
-              label={item.status}
-              variant={item.status === 'completed' ? 'success' : 'warning'}
-              size="sm"
-            />
           </View>
         )}
       />
+      )}
     </SafeAreaView>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   StatusBar, TouchableOpacity,
@@ -10,16 +10,36 @@ import { Routes } from '../../constants/routes';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useMyFamily, fullName } from '../../hooks/useFamily';
+import type { FamilyMember } from '../../types';
 
-const MOCK_MEMBERS = [
-  { id: 'm1', name: 'Thomas Raj', relation: 'Head of Family', dob: 'Jan 15, 1975', gender: 'male', occupation: 'Engineer', isHead: true },
-  { id: 'm2', name: 'Mary Raj', relation: 'Spouse', dob: 'Mar 8, 1978', gender: 'female', occupation: 'Teacher', isHead: false },
-  { id: 'm3', name: 'John Thomas', relation: 'Son', dob: 'Jun 22, 2002', gender: 'male', occupation: 'Student', isHead: false },
-  { id: 'm4', name: 'Priya Thomas', relation: 'Daughter', dob: 'Sep 10, 2005', gender: 'female', occupation: 'Student', isHead: false },
-];
+const RELATION_LABEL: Record<FamilyMember['relation'], string> = {
+  head: 'Head of Family',
+  spouse: 'Spouse',
+  son: 'Son',
+  daughter: 'Daughter',
+  parent: 'Parent',
+  other: 'Other',
+};
+
+/** "2002-06-22" → "22 Jun 2002"; anything unparseable is shown as entered. */
+function formatDob(dob?: string): string | undefined {
+  if (!dob) return undefined;
+  const d = new Date(dob);
+  return isNaN(d.getTime())
+    ? dob
+    : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 export default function MembersScreen() {
   const navigation = useNavigation<any>();
+  const { family, isHead, isLoading, isError, refetch, isRefetching } = useMyFamily();
+  // Head first, then everyone in the order they were added.
+  const members = [...(family?.members ?? [])].sort(
+    (a, b) => Number(b.relation === 'head') - Number(a.relation === 'head'),
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -31,54 +51,81 @@ export default function MembersScreen() {
           <MaterialCommunityIcons name="arrow-left" style={styles.backIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Family Members</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => navigation.navigate(Routes.AddMember)}>
-          <Text style={styles.addBtnText}>+ Add</Text>
-        </TouchableOpacity>
+        {isHead && (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => navigation.navigate(Routes.AddMember)}>
+            <Text style={styles.addBtnText}>+ Add</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner fullScreen label="Loading members…" />
+      ) : !family ? (
+        <EmptyState
+          icon="account-group-outline"
+          title={isError ? "Couldn't load family members" : 'No family card yet'}
+          subtitle={isError ? 'Check your connection and try again.' : 'Please contact the parish office.'}
+          actionLabel={isError ? (isRefetching ? 'Retrying…' : 'Try again') : undefined}
+          onAction={isError ? () => refetch() : undefined}
+        />
+      ) : (
       <FlatList
-        data={MOCK_MEMBERS}
-        keyExtractor={m => m.id}
+        data={members}
+        keyExtractor={m => m._id}
         contentContainerStyle={styles.list}
-        ListHeaderComponent={() => (
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListHeaderComponent={
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statNum}>{MOCK_MEMBERS.length}</Text>
+              <Text style={styles.statNum}>{members.length}</Text>
               <Text style={styles.statLabel}>Total Members</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNum}>{MOCK_MEMBERS.filter(m => m.gender === 'male').length}</Text>
+              <Text style={styles.statNum}>{members.filter(m => m.gender === 'M').length}</Text>
               <Text style={styles.statLabel}>Male</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNum}>{MOCK_MEMBERS.filter(m => m.gender === 'female').length}</Text>
+              <Text style={styles.statNum}>{members.filter(m => m.gender === 'F').length}</Text>
               <Text style={styles.statLabel}>Female</Text>
             </View>
           </View>
-        )}
-        renderItem={({ item }) => (
-          <View style={[styles.memberCard, item.isHead && styles.memberCardHead]}>
-            <View style={[styles.avatar, { backgroundColor: item.gender === 'female' ? Colors.sky.blue : Colors.primary.navy }]}>
-              <Text style={styles.avatarText}>{item.name[0]}</Text>
+        }
+        renderItem={({ item }) => {
+          const isHeadMember = item.relation === 'head';
+          const details = [formatDob(item.dob), item.occupation].filter(Boolean).join('  ·  ');
+          return (
+          <View style={[styles.memberCard, isHeadMember && styles.memberCardHead]}>
+            <View style={[styles.avatar, { backgroundColor: item.gender === 'F' ? Colors.sky.blue : Colors.primary.navy }]}>
+              <Text style={styles.avatarText}>{item.firstName[0]?.toUpperCase()}</Text>
             </View>
             <View style={styles.memberInfo}>
               <View style={styles.nameRow}>
-                <Text style={styles.memberName}>{item.name}</Text>
-                {item.isHead && (
+                <Text style={styles.memberName}>{fullName(item)}</Text>
+                {isHeadMember && (
                   <View style={styles.headBadge}><Text style={styles.headBadgeText}>Head</Text></View>
                 )}
               </View>
-              <Text style={styles.relation}>{item.relation}</Text>
-              <Text style={styles.details}><MaterialCommunityIcons name="cake-variant-outline" size={13} /> {item.dob}  ·  {item.occupation}</Text>
+              <Text style={styles.relation}>{RELATION_LABEL[item.relation]}{item.isDeceased ? ' · Deceased' : ''}</Text>
+              {!!details && (
+                <Text style={styles.details}><MaterialCommunityIcons name="cake-variant-outline" size={13} /> {details}</Text>
+              )}
             </View>
-            <TouchableOpacity style={styles.editBtn}>
-              <MaterialCommunityIcons name="pencil-outline" style={styles.editIcon} />
-            </TouchableOpacity>
+            {isHead && (
+              <TouchableOpacity
+                style={styles.editBtn}
+                accessibilityLabel={`Edit ${fullName(item)}`}
+                onPress={() => navigation.navigate(Routes.AddMember, { memberId: item._id })}>
+                <MaterialCommunityIcons name="pencil-outline" style={styles.editIcon} />
+              </TouchableOpacity>
+            )}
           </View>
-        )}
+          );
+        }}
       />
+      )}
     </SafeAreaView>
   );
 }

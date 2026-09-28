@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   StatusBar, TouchableOpacity, Alert,
@@ -10,35 +10,48 @@ import Badge from '../../components/common/Badge/Badge';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TopSafeArea from '../../components/common/TopSafeArea/TopSafeArea';
+import LoadingSpinner from '../../components/common/LoadingSpinner/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState/EmptyState';
+import { useAdminTransfers, useUpdateTransfer } from '../../hooks/useAdmin';
+import type { AdminTransfer } from '../../api/admin.api';
+import { getApiErrorMessage } from '../../api/client';
 
-const TRANSFERS = [
-  { id: 't1', family: 'John Peter Family', fromChurch: 'St. Mary\'s Basilica', toChurch: 'Santhome Cathedral', requestedOn: 'Jun 1', reason: 'Relocation to Mylapore', status: 'pending' },
-  { id: 't2', family: 'Raj Family', fromChurch: 'St. Mary\'s Basilica', toChurch: 'Our Lady of Lourdes', requestedOn: 'May 25', reason: 'Near new home', status: 'approved' },
-  { id: 't3', family: 'Anthony Family', fromChurch: 'Holy Cross', toChurch: 'St. Mary\'s Basilica', requestedOn: 'May 20', reason: 'Preferred parish', status: 'pending' },
-];
-
-const STATUS_MAP: Record<string, 'success' | 'warning' | 'error'> = {
-  approved: 'success', pending: 'warning', rejected: 'error',
+const STATUS: Record<AdminTransfer['status'], { label: string; variant: 'success' | 'warning' | 'error' | 'info' }> = {
+  pending_source: { label: 'Awaiting current parish', variant: 'warning' },
+  approved_source: { label: 'Released', variant: 'info' },
+  pending_destination: { label: 'At new parish', variant: 'info' },
+  completed: { label: 'Completed', variant: 'success' },
+  rejected: { label: 'Rejected', variant: 'error' },
 };
+
+const name = (c: AdminTransfer['sourceChurchId']) => (typeof c === 'string' ? 'Parish' : c.name);
+const family = (f: AdminTransfer['familyId']) =>
+  typeof f === 'string' ? 'Family' : `${f.familyName ?? 'Family'}${f.cardNumber ? ` (${f.cardNumber})` : ''}`;
 
 export default function AdminTransfersScreen() {
   const navigation = useNavigation<any>();
-  const [transfers, setTransfers] = useState(TRANSFERS);
+  const { data, isLoading, isError, refetch, isRefetching } = useAdminTransfers();
+  const update = useUpdateTransfer();
 
-  const handleAction = (id: string, action: 'approve' | 'reject') => {
-    Alert.alert(
-      action === 'approve' ? 'Approve Transfer?' : 'Reject Transfer?',
-      'This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: action === 'approve' ? 'Approve' : 'Reject',
-          style: action === 'reject' ? 'destructive' : 'default',
-          onPress: () => setTransfers(prev =>
-            prev.map(t => t.id === id ? { ...t, status: action === 'approve' ? 'approved' : 'rejected' } : t)),
-        },
-      ],
-    );
+  // The API decides what this parish may do next (release, accept, reject).
+  const act = (item: AdminTransfer, status: 'approved_source' | 'completed' | 'rejected') => {
+    const copy = {
+      approved_source: ['Release this family?', `${name(item.destinationChurchId)} will then review the transfer.`, 'Release'],
+      completed: ['Accept this family?', 'The family and their accounts move to your parish.', 'Accept'],
+      rejected: ['Reject this transfer?', 'The family will be told it was not approved.', 'Reject'],
+    }[status];
+    Alert.alert(copy[0], copy[1], [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: copy[2],
+        style: status === 'rejected' ? 'destructive' : 'default',
+        onPress: () =>
+          update.mutate(
+            { id: item._id, status, ...(status === 'rejected' ? { rejectionReason: 'Please contact the parish office' } : {}) },
+            { onError: err => Alert.alert("Couldn't update the transfer", getApiErrorMessage(err)) },
+          ),
+      },
+    ]);
   };
 
   return (
@@ -53,36 +66,64 @@ export default function AdminTransfersScreen() {
         <View style={{ width: 32 }} />
       </View>
 
+      {isLoading ? (
+        <LoadingSpinner fullScreen />
+      ) : (
       <FlatList
-        data={transfers}
-        keyExtractor={t => t.id}
+        data={data ?? []}
+        keyExtractor={t => t._id}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
+        onRefresh={refetch}
+        refreshing={isRefetching}
+        ListEmptyComponent={
+          <EmptyState
+            icon="swap-horizontal"
+            title={isError ? "Couldn't load transfers" : 'No transfer requests'}
+            actionLabel={isError ? 'Try again' : undefined}
+            onAction={isError ? () => refetch() : undefined}
+          />
+        }
+        renderItem={({ item }) => {
+          const actions = item.actions ?? [];
+          return (
           <View style={styles.card}>
             <View style={styles.cardTop}>
-              <Text style={styles.family}>{item.family}</Text>
-              <Badge label={item.status} variant={STATUS_MAP[item.status]} size="sm" />
+              <Text style={styles.family}>{family(item.familyId)}</Text>
+              <Badge label={STATUS[item.status].label} variant={STATUS[item.status].variant} size="sm" />
             </View>
             <View style={styles.transferRoute}>
-              <Text style={styles.church}>{item.fromChurch}</Text>
+              <Text style={styles.church}>{name(item.sourceChurchId)}</Text>
               <MaterialCommunityIcons name="arrow-right" style={styles.arrow} />
-              <Text style={styles.church}>{item.toChurch}</Text>
+              <Text style={styles.church}>{name(item.destinationChurchId)}</Text>
             </View>
-            <Text style={styles.reason}>Reason: {item.reason}</Text>
-            <Text style={styles.date}>Requested: {item.requestedOn}</Text>
-            {item.status === 'pending' && (
+            {!!item.reason && <Text style={styles.reason}>Reason: {item.reason}</Text>}
+            <Text style={styles.date}>
+              Requested: {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </Text>
+            {actions.length > 0 && (
               <View style={styles.actionsRow}>
-                <TouchableOpacity style={styles.approveBtn} onPress={() => handleAction(item.id, 'approve')}>
-                  <Text style={styles.approveBtnText}><MaterialCommunityIcons name="check" size={13} /> Approve</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.rejectBtn} onPress={() => handleAction(item.id, 'reject')}>
-                  <Text style={styles.rejectBtnText}><MaterialCommunityIcons name="close" size={13} /> Reject</Text>
-                </TouchableOpacity>
+                {actions.includes('approved_source') && (
+                  <TouchableOpacity style={styles.approveBtn} disabled={update.isPending} onPress={() => act(item, 'approved_source')}>
+                    <Text style={styles.approveBtnText}><MaterialCommunityIcons name="check" size={13} /> Release family</Text>
+                  </TouchableOpacity>
+                )}
+                {actions.includes('completed') && (
+                  <TouchableOpacity style={styles.approveBtn} disabled={update.isPending} onPress={() => act(item, 'completed')}>
+                    <Text style={styles.approveBtnText}><MaterialCommunityIcons name="check" size={13} /> Accept</Text>
+                  </TouchableOpacity>
+                )}
+                {actions.includes('rejected') && (
+                  <TouchableOpacity style={styles.rejectBtn} disabled={update.isPending} onPress={() => act(item, 'rejected')}>
+                    <Text style={styles.rejectBtnText}><MaterialCommunityIcons name="close" size={13} /> Reject</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </View>
-        )}
+          );
+        }}
       />
+      )}
     </SafeAreaView>
   );
 }
